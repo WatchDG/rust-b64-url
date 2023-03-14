@@ -1,0 +1,15 @@
+[package]
+name = "b64-url"
+version = "0.1.0"
+authors = ["WatchDG <baranov@w3m.co>"]
+license = "MIT OR Apache-2.0"
+description = "Base 64 Encoding with URL and Filename Safe Alphabet"
+homepage = "https://github.com/WatchDG/rust-b64-url"
+documentation = "https://docs.rs/b64-url"
+repository = "https://github.com/WatchDG/rust-b64-url"
+readme = "README.md"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
