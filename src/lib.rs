@@ -26,8 +26,18 @@ pub const B64_URL_DECODE: [u8; 255] = [
 
 pub const B64_URL_PAD: u8 = 0x3d;
 
+#[derive(Default)]
+pub struct B64ConfigPadding {
+    pub omit: bool,
+}
+
+#[derive(Default)]
+pub struct B64Config {
+    pub padding: B64ConfigPadding,
+}
+
 #[inline(always)]
-pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
+pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
     let length = bytes.len();
     let mut vec = Vec::<u8>::with_capacity(length * 4 / 3);
     let mut index = 0;
@@ -49,18 +59,107 @@ pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
             vec.push(B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize]);
             vec.push(B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize]);
             vec.push(B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize]);
-            vec.push(B64_URL_PAD);
+            if !config.padding.omit {
+                vec.push(B64_URL_PAD);
+            }
         }
         1 => {
             let value = (bytes[index] as u32) << 16;
             vec.push(B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize]);
             vec.push(B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize]);
-            vec.push(B64_URL_PAD);
-            vec.push(B64_URL_PAD);
+            if !config.padding.omit {
+                vec.push(B64_URL_PAD);
+                vec.push(B64_URL_PAD);
+            }
         }
         _ => {}
     };
     vec
+}
+
+#[cfg(test)]
+mod b64_url_encode__with_config_tests {
+    use super::*;
+
+    mod with_omit_pads {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn f() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"f", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zg");
+        }
+
+        #[test]
+        fn fo() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"fo", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zm8");
+        }
+
+        #[test]
+        fn foo() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"foo", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zm9v");
+        }
+
+        #[test]
+        fn foob() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"foob", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zm9vYg");
+        }
+
+        #[test]
+        fn fooba() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"fooba", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zm9vYmE");
+        }
+
+        #[test]
+        fn foobar() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes = b64_url_encode_with_config(b"foobar", &config);
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "Zm9vYmFy");
+        }
+    }
+}
+
+#[inline(always)]
+pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
+    let config = B64Config::default();
+    b64_url_encode_with_config(bytes, &config)
 }
 
 #[cfg(test)]
