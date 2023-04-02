@@ -1,3 +1,5 @@
+use lazy_static::lazy_static;
+
 pub const B64_URL_ENCODE: [u8; 64] = [
     0x41, 0x42, 0x43, 0x44, 0x45, 0x46, 0x47, 0x48, 0x49, 0x4a, 0x4b, 0x4c, 0x4d, 0x4e, 0x4f, 0x50,
     0x51, 0x52, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5a, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66,
@@ -25,6 +27,10 @@ pub const B64_URL_DECODE: [u8; 255] = [
 ];
 
 pub const B64_URL_PAD: u8 = 0x3d;
+
+lazy_static! {
+    static ref DEFAULT_CONFIG: B64Config = B64Config::default();
+}
 
 #[derive(Default)]
 pub struct B64ConfigPadding {
@@ -158,8 +164,7 @@ mod b64_url_encode__with_config_tests {
 
 #[inline(always)]
 pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
-    let config = B64Config::default();
-    b64_url_encode_with_config(bytes, &config)
+    b64_url_encode_with_config(bytes, &DEFAULT_CONFIG)
 }
 
 #[cfg(test)]
@@ -221,40 +226,7 @@ mod b64_url_encode_tests {
 /// This function should not be called without checking the input value.
 #[inline(always)]
 pub unsafe fn b64_url_decode_without_validation(bytes: &[u8]) -> Vec<u8> {
-    let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
-    let mut index = 0;
-    if length > 4 {
-        while index < length - 4 {
-            let value = ((B64_URL_DECODE[(bytes[index] as usize)] as u32) << 18)
-                | ((B64_URL_DECODE[(bytes[index + 1] as usize)] as u32) << 12)
-                | ((B64_URL_DECODE[(bytes[index + 2] as usize)] as u32) << 6)
-                | (B64_URL_DECODE[(bytes[index + 3] as usize)] as u32);
-            vec.push(((value >> 16) & 0b1111_1111) as u8);
-            vec.push(((value >> 8) & 0b1111_1111) as u8);
-            vec.push((value & 0b1111_1111) as u8);
-            index += 4;
-        }
-    }
-    if index + 4 == length {
-        let mut value = ((B64_URL_DECODE[(bytes[index] as usize)] as u32) << 18)
-            | ((B64_URL_DECODE[(bytes[index + 1] as usize)] as u32) << 12);
-        if bytes[index + 2] != B64_URL_PAD {
-            value |= (B64_URL_DECODE[(bytes[index + 2] as usize)] as u32) << 6;
-            if bytes[index + 3] != B64_URL_PAD {
-                value |= B64_URL_DECODE[(bytes[index + 3] as usize)] as u32;
-                vec.push(((value >> 16) & 0b1111_1111) as u8);
-                vec.push(((value >> 8) & 0b1111_1111) as u8);
-                vec.push((value & 0b1111_1111) as u8);
-            } else {
-                vec.push(((value >> 16) & 0b1111_1111) as u8);
-                vec.push(((value >> 8) & 0b1111_1111) as u8);
-            }
-        } else {
-            vec.push(((value >> 16) & 0b1111_1111) as u8);
-        }
-    }
-    vec
+    b64_url_decode_with_config_without_validation(bytes, &DEFAULT_CONFIG)
 }
 
 #[cfg(test)]
@@ -308,5 +280,156 @@ mod b64_url_decode_without_validation_tests {
         let result_bytes = unsafe { b64_url_decode_without_validation(b"Zm9vYmFy") };
         let result = String::from_utf8(result_bytes).unwrap();
         assert_eq!(result, "foobar");
+    }
+}
+
+/// # Safety
+///
+/// This function should not be called without checking the input value.
+#[inline(always)]
+pub unsafe fn b64_url_decode_with_config_without_validation(
+    bytes: &[u8],
+    config: &B64Config,
+) -> Vec<u8> {
+    let length = bytes.len();
+    let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
+    let mut index = 0;
+    if length > 4 {
+        while index < length - 4 {
+            let value = ((B64_URL_DECODE[(bytes[index] as usize)] as u32) << 18)
+                | ((B64_URL_DECODE[(bytes[index + 1] as usize)] as u32) << 12)
+                | ((B64_URL_DECODE[(bytes[index + 2] as usize)] as u32) << 6)
+                | (B64_URL_DECODE[(bytes[index + 3] as usize)] as u32);
+            vec.push(((value >> 16) & 0b1111_1111) as u8);
+            vec.push(((value >> 8) & 0b1111_1111) as u8);
+            vec.push((value & 0b1111_1111) as u8);
+            index += 4;
+        }
+    }
+    if config.padding.omit {
+        if index + 2 <= length {
+            let mut value = ((B64_URL_DECODE[(bytes[index] as usize)] as u32) << 18)
+                | ((B64_URL_DECODE[(bytes[index + 1] as usize)] as u32) << 12);
+            if index + 3 <= length {
+                value |= (B64_URL_DECODE[(bytes[index + 2] as usize)] as u32) << 6;
+                if index + 4 <= length {
+                    value |= B64_URL_DECODE[(bytes[index + 3] as usize)] as u32;
+                    vec.push(((value >> 16) & 0b1111_1111) as u8);
+                    vec.push(((value >> 8) & 0b1111_1111) as u8);
+                    vec.push((value & 0b1111_1111) as u8);
+                } else {
+                    vec.push(((value >> 16) & 0b1111_1111) as u8);
+                    vec.push(((value >> 8) & 0b1111_1111) as u8);
+                }
+            } else {
+                vec.push(((value >> 16) & 0b1111_1111) as u8);
+            }
+        }
+        return vec;
+    }
+    if index + 4 == length {
+        let mut value = ((B64_URL_DECODE[(bytes[index] as usize)] as u32) << 18)
+            | ((B64_URL_DECODE[(bytes[index + 1] as usize)] as u32) << 12);
+        if bytes[index + 2] != B64_URL_PAD {
+            value |= (B64_URL_DECODE[(bytes[index + 2] as usize)] as u32) << 6;
+            if bytes[index + 3] != B64_URL_PAD {
+                value |= B64_URL_DECODE[(bytes[index + 3] as usize)] as u32;
+                vec.push(((value >> 16) & 0b1111_1111) as u8);
+                vec.push(((value >> 8) & 0b1111_1111) as u8);
+                vec.push((value & 0b1111_1111) as u8);
+            } else {
+                vec.push(((value >> 16) & 0b1111_1111) as u8);
+                vec.push(((value >> 8) & 0b1111_1111) as u8);
+            }
+        } else {
+            vec.push(((value >> 16) & 0b1111_1111) as u8);
+        }
+    }
+    vec
+}
+
+#[cfg(test)]
+mod b64_url_decode_with_config_without_validation_tests {
+    use super::*;
+
+    mod with_omit_pads {
+        use super::*;
+
+        #[test]
+        fn empty() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "");
+        }
+
+        #[test]
+        fn f() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zg", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "f");
+        }
+
+        #[test]
+        fn fo() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zm8", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "fo");
+        }
+
+        #[test]
+        fn foo() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zm9v", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "foo");
+        }
+
+        #[test]
+        fn foob() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zm9vYg", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "foob");
+        }
+
+        #[test]
+        fn fooba() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zm9vYmE", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "fooba");
+        }
+
+        #[test]
+        fn foobar() {
+            let config = B64Config {
+                padding: B64ConfigPadding { omit: true },
+            };
+            let result_bytes =
+                unsafe { b64_url_decode_with_config_without_validation(b"Zm9vYmFy", &config) };
+            let result = String::from_utf8(result_bytes).unwrap();
+            assert_eq!(result, "foobar");
+        }
     }
 }
