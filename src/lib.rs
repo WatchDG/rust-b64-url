@@ -43,43 +43,69 @@ pub struct B64Config {
 }
 
 #[inline(always)]
-pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
-    let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(length * 4 / 3);
-    let mut index = 0;
-    if length >= 3 {
-        while index <= (length - 3) {
-            let value = (bytes[index] as u32) << 16
-                | (bytes[index + 1] as u32) << 8
-                | (bytes[index + 2] as u32);
-            vec.push(B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[(value & 0b11_1111) as usize]);
-            index += 3;
-        }
+pub fn _b64_url_encode_calculate_destination_capacity(bytes: &[u8]) -> usize {
+    return bytes.len() / 3 * 4 + 4;
+}
+
+#[inline(always)]
+pub unsafe fn _b64_url_encode_with_config(
+    mut source: *const u8,
+    mut source_length: usize,
+    mut destination: *mut u8,
+    config: &B64Config,
+) -> usize {
+    let mut bytes = 0;
+    while source_length >= 3 {
+        let value = ((*source as u32) << 16)
+            | ((*source.offset(1) as u32) << 8)
+            | (*source.offset(2) as u32);
+        *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+        *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+        *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
+        source = source.offset(3);
+        destination = destination.offset(4);
+        source_length -= 3;
+        bytes += 4;
     }
-    match length - index {
+    match source_length {
         2 => {
-            let value = (bytes[index] as u32) << 16 | (bytes[index + 1] as u32) << 8;
-            vec.push(B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize]);
+            let value = ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8);
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+            *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
             if !config.padding.omit {
-                vec.push(B64_URL_PAD);
+                *destination.offset(3) = B64_URL_PAD;
+                bytes += 4;
+            } else {
+                bytes += 3;
             }
         }
         1 => {
-            let value = (bytes[index] as u32) << 16;
-            vec.push(B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize]);
-            vec.push(B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize]);
+            let value = (*source as u32) << 16;
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
             if !config.padding.omit {
-                vec.push(B64_URL_PAD);
-                vec.push(B64_URL_PAD);
+                *destination.offset(2) = B64_URL_PAD;
+                *destination.offset(3) = B64_URL_PAD;
+                bytes += 4;
+            } else {
+                bytes += 2;
             }
         }
         _ => {}
-    };
+    }
+    return bytes;
+}
+
+#[inline(always)]
+pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
+    let length = bytes.len();
+    let mut vec = Vec::<u8>::with_capacity(_b64_url_encode_calculate_destination_capacity(bytes));
+    unsafe {
+        let bytes = _b64_url_encode_with_config(bytes.as_ptr(), length, vec.as_mut_ptr(), config);
+        vec.set_len(bytes);
+    }
     vec
 }
 
