@@ -43,8 +43,8 @@ pub struct B64Config {
 }
 
 #[inline(always)]
-pub fn _b64_url_encode_calculate_destination_capacity(bytes: &[u8]) -> usize {
-    return bytes.len() / 3 * 4 + 4;
+pub fn _b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
+    length / 3 * 4 + 4
 }
 
 #[inline(always)]
@@ -95,13 +95,13 @@ pub unsafe fn _b64_url_encode_with_config(
         }
         _ => {}
     }
-    return bytes;
+    bytes
 }
 
 #[inline(always)]
 pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
     let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(_b64_url_encode_calculate_destination_capacity(bytes));
+    let mut vec = Vec::<u8>::with_capacity(_b64_url_encode_calculate_destination_capacity(length));
     unsafe {
         let bytes = _b64_url_encode_with_config(bytes.as_ptr(), length, vec.as_mut_ptr(), config);
         vec.set_len(bytes);
@@ -110,7 +110,7 @@ pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
 }
 
 #[cfg(test)]
-mod b64_url_encode__with_config_tests {
+mod b64_url_encode_with_config_tests {
     use super::*;
 
     mod with_omit_pads {
