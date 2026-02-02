@@ -114,6 +114,17 @@ pub unsafe fn unsafe_b64_url_decode(bytes: &[u8]) -> Vec<u8> {
 /// This function should not be called without checking the input value.
 #[inline(always)]
 pub unsafe fn unsafe_b64_url_decode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
+    if config.padding.omit {
+        return unsafe { unsafe_b64_url_decode_with_omit_padding(bytes) };
+    }
+    unsafe { unsafe_b64_url_decode_with_padding(bytes) }
+}
+
+/// # Safety
+///
+/// This function should not be called without checking the input value.
+#[inline(always)]
+unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let length = bytes.len();
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
     let mut index = 0;
@@ -129,26 +140,46 @@ pub unsafe fn unsafe_b64_url_decode_with_config(bytes: &[u8], config: &B64Config
             index += 4;
         }
     }
-    if config.padding.omit {
-        if index + 2 <= length {
-            let mut value = ((B64_URL_DECODE[bytes[index] as usize] as u32) << 18)
-                | ((B64_URL_DECODE[bytes[index + 1] as usize] as u32) << 12);
-            if index + 3 <= length {
-                value |= (B64_URL_DECODE[bytes[index + 2] as usize] as u32) << 6;
-                if index + 4 <= length {
-                    value |= B64_URL_DECODE[bytes[index + 3] as usize] as u32;
-                    vec.push(((value >> 16) & 0b1111_1111) as u8);
-                    vec.push(((value >> 8) & 0b1111_1111) as u8);
-                    vec.push((value & 0b1111_1111) as u8);
-                } else {
-                    vec.push(((value >> 16) & 0b1111_1111) as u8);
-                    vec.push(((value >> 8) & 0b1111_1111) as u8);
-                }
+    if index + 2 <= length {
+        let mut value = ((B64_URL_DECODE[bytes[index] as usize] as u32) << 18)
+            | ((B64_URL_DECODE[bytes[index + 1] as usize] as u32) << 12);
+        if index + 3 <= length {
+            value |= (B64_URL_DECODE[bytes[index + 2] as usize] as u32) << 6;
+            if index + 4 <= length {
+                value |= B64_URL_DECODE[bytes[index + 3] as usize] as u32;
+                vec.push(((value >> 16) & 0b1111_1111) as u8);
+                vec.push(((value >> 8) & 0b1111_1111) as u8);
+                vec.push((value & 0b1111_1111) as u8);
             } else {
                 vec.push(((value >> 16) & 0b1111_1111) as u8);
+                vec.push(((value >> 8) & 0b1111_1111) as u8);
             }
+        } else {
+            vec.push(((value >> 16) & 0b1111_1111) as u8);
         }
-        return vec;
+    }
+    vec
+}
+
+/// # Safety
+///
+/// This function should not be called without checking the input value.
+#[inline(always)]
+unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
+    let length = bytes.len();
+    let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
+    let mut index = 0;
+    if length > 4 {
+        while index < length - 4 {
+            let value = ((B64_URL_DECODE[bytes[index] as usize] as u32) << 18)
+                | ((B64_URL_DECODE[bytes[index + 1] as usize] as u32) << 12)
+                | ((B64_URL_DECODE[bytes[index + 2] as usize] as u32) << 6)
+                | (B64_URL_DECODE[bytes[index + 3] as usize] as u32);
+            vec.push(((value >> 16) & 0b1111_1111) as u8);
+            vec.push(((value >> 8) & 0b1111_1111) as u8);
+            vec.push((value & 0b1111_1111) as u8);
+            index += 4;
+        }
     }
     if index + 4 == length {
         let mut value = ((B64_URL_DECODE[bytes[index] as usize] as u32) << 18)
