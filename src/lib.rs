@@ -121,7 +121,7 @@ pub unsafe fn unsafe_b64_url_decode_with_config(bytes: &[u8], config: &B64Config
 }
 
 #[inline(always)]
-unsafe fn decode_4(chunk: &[u8], vec: &mut Vec<u8>) {
+unsafe fn decode_4_to_ptr(chunk: &[u8], out: *mut u8) -> *mut u8 {
     let b0 = unsafe { *chunk.get_unchecked(0) as usize };
     let b1 = unsafe { *chunk.get_unchecked(1) as usize };
     let b2 = unsafe { *chunk.get_unchecked(2) as usize };
@@ -130,9 +130,12 @@ unsafe fn decode_4(chunk: &[u8], vec: &mut Vec<u8>) {
         | ((B64_URL_DECODE[b1] as u32) << 12)
         | ((B64_URL_DECODE[b2] as u32) << 6)
         | (B64_URL_DECODE[b3] as u32);
-    vec.push(((value >> 16) & 0b1111_1111) as u8);
-    vec.push(((value >> 8) & 0b1111_1111) as u8);
-    vec.push((value & 0b1111_1111) as u8);
+    unsafe {
+        *out = ((value >> 16) & 0b1111_1111) as u8;
+        *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+        *out.add(2) = (value & 0b1111_1111) as u8;
+        out.add(3)
+    }
 }
 
 /// # Safety
@@ -142,9 +145,12 @@ unsafe fn decode_4(chunk: &[u8], vec: &mut Vec<u8>) {
 unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let length = bytes.len();
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
+    let mut out = vec.as_mut_ptr();
+    let mut out_len = 0usize;
     let mut chunks = bytes.chunks_exact(4);
     for chunk in chunks.by_ref() {
-        unsafe { decode_4(chunk, &mut vec) };
+        out = unsafe { decode_4_to_ptr(chunk, out) };
+        out_len += 3;
     }
     let remainder = chunks.remainder();
     if remainder.len() >= 2 {
@@ -154,11 +160,20 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
         if remainder.len() >= 3 {
             let b2 = unsafe { *remainder.get_unchecked(2) as usize };
             value |= (B64_URL_DECODE[b2] as u32) << 6;
-            vec.push(((value >> 16) & 0b1111_1111) as u8);
-            vec.push(((value >> 8) & 0b1111_1111) as u8);
+            unsafe {
+                *out = ((value >> 16) & 0b1111_1111) as u8;
+                *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+            }
+            out_len += 2;
         } else {
-            vec.push(((value >> 16) & 0b1111_1111) as u8);
+            unsafe {
+                *out = ((value >> 16) & 0b1111_1111) as u8;
+            }
+            out_len += 1;
         }
+    }
+    unsafe {
+        vec.set_len(out_len);
     }
     vec
 }
@@ -170,12 +185,15 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
 unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
     let length = bytes.len();
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
+    let mut out = vec.as_mut_ptr();
+    let mut out_len = 0usize;
     let mut chunks = bytes.chunks_exact(4);
     let chunk_count = chunks.len();
     if chunk_count > 0 {
         for _ in 0..chunk_count.saturating_sub(1) {
             let chunk = chunks.next().unwrap();
-            unsafe { decode_4(chunk, &mut vec) };
+            out = unsafe { decode_4_to_ptr(chunk, out) };
+            out_len += 3;
         }
         let last = chunks.next().unwrap();
         let b0 = unsafe { *last.get_unchecked(0) as usize };
@@ -187,16 +205,28 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
             value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
             if b3 != B64_URL_PAD {
                 value |= B64_URL_DECODE[b3 as usize] as u32;
-                vec.push(((value >> 16) & 0b1111_1111) as u8);
-                vec.push(((value >> 8) & 0b1111_1111) as u8);
-                vec.push((value & 0b1111_1111) as u8);
+                unsafe {
+                    *out = ((value >> 16) & 0b1111_1111) as u8;
+                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+                    *out.add(2) = (value & 0b1111_1111) as u8;
+                }
+                out_len += 3;
             } else {
-                vec.push(((value >> 16) & 0b1111_1111) as u8);
-                vec.push(((value >> 8) & 0b1111_1111) as u8);
+                unsafe {
+                    *out = ((value >> 16) & 0b1111_1111) as u8;
+                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+                }
+                out_len += 2;
             }
         } else {
-            vec.push(((value >> 16) & 0b1111_1111) as u8);
+            unsafe {
+                *out = ((value >> 16) & 0b1111_1111) as u8;
+            }
+            out_len += 1;
         }
+    }
+    unsafe {
+        vec.set_len(out_len);
     }
     vec
 }
