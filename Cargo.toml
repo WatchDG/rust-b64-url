@@ -16,6 +16,7 @@ edition = "2024"
 
 [features]
 simd = []
+simd-avx512 = []
 simd-threshold-32 = []
 simd-threshold-128 = []
 simd-threshold-256 = []

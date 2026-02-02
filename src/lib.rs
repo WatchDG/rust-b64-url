@@ -32,6 +32,9 @@ const SIMD_THRESHOLD: usize = if cfg!(feature = "simd-threshold-32") {
 #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 mod simd {
     use super::B64_URL_DECODE;
+    #[cfg(target_arch = "x86")]
+    use core::arch::x86::*;
+    #[cfg(target_arch = "x86_64")]
     use core::arch::x86_64::*;
 
     #[inline(always)]
@@ -53,7 +56,7 @@ mod simd {
     }
 
     #[target_feature(enable = "sse2")]
-    pub unsafe fn decode_16_bytes(input: *const u8, out: *mut u8) -> *mut u8 {
+    pub unsafe fn decode_16_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
         let v = unsafe { _mm_loadu_si128(input as *const __m128i) };
         let mut tmp = [0u8; 16];
         unsafe { _mm_storeu_si128(tmp.as_mut_ptr() as *mut __m128i, v) };
@@ -62,6 +65,49 @@ mod simd {
         out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(4), out_ptr) };
         out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(8), out_ptr) };
         out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(12), out_ptr) };
+        out_ptr
+    }
+
+    #[target_feature(enable = "avx2")]
+    pub unsafe fn decode_32_bytes_avx2(input: *const u8, out: *mut u8) -> *mut u8 {
+        let v = unsafe { _mm256_loadu_si256(input as *const __m256i) };
+        let mut tmp = [0u8; 32];
+        unsafe { _mm256_storeu_si256(tmp.as_mut_ptr() as *mut __m256i, v) };
+        let mut out_ptr = out;
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr(), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(4), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(8), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(12), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(16), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(20), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(24), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(28), out_ptr) };
+        out_ptr
+    }
+
+    #[cfg(feature = "simd-avx512")]
+    #[target_feature(enable = "avx512f")]
+    pub unsafe fn decode_64_bytes_avx512(input: *const u8, out: *mut u8) -> *mut u8 {
+        let v = unsafe { _mm512_loadu_si512(input as *const __m512i) };
+        let mut tmp = [0u8; 64];
+        unsafe { _mm512_storeu_si512(tmp.as_mut_ptr() as *mut __m512i, v) };
+        let mut out_ptr = out;
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr(), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(4), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(8), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(12), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(16), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(20), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(24), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(28), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(32), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(36), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(40), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(44), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(48), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(52), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(56), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(60), out_ptr) };
         out_ptr
     }
 }
@@ -196,15 +242,34 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let mut out_len = 0usize;
     let mut processed = 0usize;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-    if length >= SIMD_THRESHOLD && std::arch::is_x86_feature_detected!("sse2") {
-        let simd_blocks = (length / 16) as usize;
+    if length >= SIMD_THRESHOLD {
         let mut in_ptr = bytes.as_ptr();
-        for _ in 0..simd_blocks {
-            out = unsafe { simd::decode_16_bytes(in_ptr, out) };
-            in_ptr = unsafe { in_ptr.add(16) };
-            out_len += 12;
+        #[cfg(feature = "simd-avx512")]
+        if std::arch::is_x86_feature_detected!("avx512f") {
+            let simd_blocks = length / 64;
+            for _ in 0..simd_blocks {
+                out = unsafe { simd::decode_64_bytes_avx512(in_ptr, out) };
+                in_ptr = unsafe { in_ptr.add(64) };
+                out_len += 48;
+            }
+            processed = simd_blocks * 64;
+        } else if std::arch::is_x86_feature_detected!("avx2") {
+            let simd_blocks = length / 32;
+            for _ in 0..simd_blocks {
+                out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
+                in_ptr = unsafe { in_ptr.add(32) };
+                out_len += 24;
+            }
+            processed = simd_blocks * 32;
+        } else if std::arch::is_x86_feature_detected!("sse2") {
+            let simd_blocks = length / 16;
+            for _ in 0..simd_blocks {
+                out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
+                in_ptr = unsafe { in_ptr.add(16) };
+                out_len += 12;
+            }
+            processed = simd_blocks * 16;
         }
-        processed = simd_blocks * 16;
     }
     let mut chunks = bytes[processed..].chunks_exact(4);
     for chunk in chunks.by_ref() {
@@ -251,15 +316,34 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
         let bulk_chunks = chunk_count.saturating_sub(1);
         let mut processed = 0usize;
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-        if bulk_chunks * 4 >= SIMD_THRESHOLD && std::arch::is_x86_feature_detected!("sse2") {
-            let simd_blocks = bulk_chunks / 4;
+        if bulk_chunks * 4 >= SIMD_THRESHOLD {
             let mut in_ptr = bytes.as_ptr();
-            for _ in 0..simd_blocks {
-                out = unsafe { simd::decode_16_bytes(in_ptr, out) };
-                in_ptr = unsafe { in_ptr.add(16) };
-                out_len += 12;
+            #[cfg(feature = "simd-avx512")]
+            if std::arch::is_x86_feature_detected!("avx512f") {
+                let simd_blocks = (bulk_chunks * 4) / 64;
+                for _ in 0..simd_blocks {
+                    out = unsafe { simd::decode_64_bytes_avx512(in_ptr, out) };
+                    in_ptr = unsafe { in_ptr.add(64) };
+                    out_len += 48;
+                }
+                processed = simd_blocks * 64;
+            } else if std::arch::is_x86_feature_detected!("avx2") {
+                let simd_blocks = (bulk_chunks * 4) / 32;
+                for _ in 0..simd_blocks {
+                    out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
+                    in_ptr = unsafe { in_ptr.add(32) };
+                    out_len += 24;
+                }
+                processed = simd_blocks * 32;
+            } else if std::arch::is_x86_feature_detected!("sse2") {
+                let simd_blocks = (bulk_chunks * 4) / 16;
+                for _ in 0..simd_blocks {
+                    out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
+                    in_ptr = unsafe { in_ptr.add(16) };
+                    out_len += 12;
+                }
+                processed = simd_blocks * 16;
             }
-            processed = simd_blocks * 16;
         }
         let mut chunks = bytes[processed..(bulk_chunks * 4)].chunks_exact(4);
         for chunk in chunks.by_ref() {
