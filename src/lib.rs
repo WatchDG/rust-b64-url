@@ -19,6 +19,53 @@ const DEFAULT_CONFIG: B64Config = B64Config {
     padding: B64ConfigPadding { omit: false },
 };
 
+const SIMD_THRESHOLD: usize = if cfg!(feature = "simd-threshold-32") {
+    32
+} else if cfg!(feature = "simd-threshold-128") {
+    128
+} else if cfg!(feature = "simd-threshold-256") {
+    256
+} else {
+    64
+};
+
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+mod simd {
+    use super::B64_URL_DECODE;
+    use core::arch::x86_64::*;
+
+    #[inline(always)]
+    unsafe fn decode_4_from_ptr(input: *const u8, out: *mut u8) -> *mut u8 {
+        let b0 = unsafe { *input as usize };
+        let b1 = unsafe { *input.add(1) as usize };
+        let b2 = unsafe { *input.add(2) as usize };
+        let b3 = unsafe { *input.add(3) as usize };
+        let value = ((B64_URL_DECODE[b0] as u32) << 18)
+            | ((B64_URL_DECODE[b1] as u32) << 12)
+            | ((B64_URL_DECODE[b2] as u32) << 6)
+            | (B64_URL_DECODE[b3] as u32);
+        unsafe {
+            *out = ((value >> 16) & 0b1111_1111) as u8;
+            *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+            *out.add(2) = (value & 0b1111_1111) as u8;
+            out.add(3)
+        }
+    }
+
+    #[target_feature(enable = "sse2")]
+    pub unsafe fn decode_16_bytes(input: *const u8, out: *mut u8) -> *mut u8 {
+        let v = unsafe { _mm_loadu_si128(input as *const __m128i) };
+        let mut tmp = [0u8; 16];
+        unsafe { _mm_storeu_si128(tmp.as_mut_ptr() as *mut __m128i, v) };
+        let mut out_ptr = out;
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr(), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(4), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(8), out_ptr) };
+        out_ptr = unsafe { decode_4_from_ptr(tmp.as_ptr().add(12), out_ptr) };
+        out_ptr
+    }
+}
+
 #[derive(Default)]
 pub struct B64ConfigPadding {
     pub omit: bool,
@@ -147,7 +194,19 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
     let mut out = vec.as_mut_ptr();
     let mut out_len = 0usize;
-    let mut chunks = bytes.chunks_exact(4);
+    let mut processed = 0usize;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    if length >= SIMD_THRESHOLD && std::arch::is_x86_feature_detected!("sse2") {
+        let simd_blocks = (length / 16) as usize;
+        let mut in_ptr = bytes.as_ptr();
+        for _ in 0..simd_blocks {
+            out = unsafe { simd::decode_16_bytes(in_ptr, out) };
+            in_ptr = unsafe { in_ptr.add(16) };
+            out_len += 12;
+        }
+        processed = simd_blocks * 16;
+    }
+    let mut chunks = bytes[processed..].chunks_exact(4);
     for chunk in chunks.by_ref() {
         out = unsafe { decode_4_to_ptr(chunk, out) };
         out_len += 3;
@@ -187,15 +246,28 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
     let mut out = vec.as_mut_ptr();
     let mut out_len = 0usize;
-    let mut chunks = bytes.chunks_exact(4);
-    let chunk_count = chunks.len();
+    let chunk_count = length / 4;
     if chunk_count > 0 {
-        for _ in 0..chunk_count.saturating_sub(1) {
-            let chunk = chunks.next().unwrap();
+        let bulk_chunks = chunk_count.saturating_sub(1);
+        let mut processed = 0usize;
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        if bulk_chunks * 4 >= SIMD_THRESHOLD && std::arch::is_x86_feature_detected!("sse2") {
+            let simd_blocks = bulk_chunks / 4;
+            let mut in_ptr = bytes.as_ptr();
+            for _ in 0..simd_blocks {
+                out = unsafe { simd::decode_16_bytes(in_ptr, out) };
+                in_ptr = unsafe { in_ptr.add(16) };
+                out_len += 12;
+            }
+            processed = simd_blocks * 16;
+        }
+        let mut chunks = bytes[processed..(bulk_chunks * 4)].chunks_exact(4);
+        for chunk in chunks.by_ref() {
             out = unsafe { decode_4_to_ptr(chunk, out) };
             out_len += 3;
         }
-        let last = chunks.next().unwrap();
+        let last_start = bulk_chunks * 4;
+        let last = unsafe { bytes.get_unchecked(last_start..last_start + 4) };
         let b0 = unsafe { *last.get_unchecked(0) as usize };
         let b1 = unsafe { *last.get_unchecked(1) as usize };
         let b2 = unsafe { *last.get_unchecked(2) };

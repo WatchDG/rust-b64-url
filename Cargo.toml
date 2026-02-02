@@ -13,3 +13,9 @@ edition = "2024"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+
+[features]
+simd = []
+simd-threshold-32 = []
+simd-threshold-128 = []
+simd-threshold-256 = []
