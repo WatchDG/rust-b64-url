@@ -5,7 +5,7 @@
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 use super::simd;
-use super::{B64_URL_DECODE, B64_URL_PAD};
+use super::{B64DecodeError, B64_URL_DECODE, B64_URL_DECODE_VALID, B64_URL_PAD};
 #[cfg(feature = "decode-parallel")]
 use rayon::prelude::*;
 
@@ -37,6 +37,77 @@ pub(crate) fn b64_url_decode_calculate_exact_length(
         }
         Some((len / 4) * 3 - pad)
     }
+}
+
+#[inline(always)]
+pub(crate) fn b64_url_decode_validate(
+    bytes: &[u8],
+    omit_padding: bool,
+) -> Result<usize, B64DecodeError> {
+    let len = bytes.len();
+    if omit_padding {
+        match len % 4 {
+            0 => {}
+            2 => {}
+            3 => {}
+            _ => return Err(B64DecodeError::InvalidLength),
+        }
+        for (index, &byte) in bytes.iter().enumerate() {
+            if byte == B64_URL_PAD {
+                return Err(B64DecodeError::InvalidPadding);
+            }
+            if B64_URL_DECODE_VALID[byte as usize] == 0 {
+                return Err(B64DecodeError::InvalidByte { index, byte });
+            }
+        }
+        let full = (len / 4) * 3;
+        let out = match len % 4 {
+            0 => full,
+            2 => full + 1,
+            3 => full + 2,
+            _ => return Err(B64DecodeError::InvalidLength),
+        };
+        return Ok(out);
+    }
+
+    if len % 4 != 0 {
+        return Err(B64DecodeError::InvalidLength);
+    }
+    if len == 0 {
+        return Ok(0);
+    }
+
+    let mut pad = 0usize;
+    if bytes[len - 1] == B64_URL_PAD {
+        pad += 1;
+    }
+    if len >= 2 && bytes[len - 2] == B64_URL_PAD {
+        pad += 1;
+    }
+
+    if pad == 1 && bytes[len - 2] == B64_URL_PAD {
+        return Err(B64DecodeError::InvalidPadding);
+    }
+    if pad == 2 {
+        if len < 4 {
+            return Err(B64DecodeError::InvalidLength);
+        }
+        if bytes[len - 3] == B64_URL_PAD {
+            return Err(B64DecodeError::InvalidPadding);
+        }
+    }
+
+    let valid_end = len - pad;
+    for (index, &byte) in bytes[..valid_end].iter().enumerate() {
+        if byte == B64_URL_PAD {
+            return Err(B64DecodeError::InvalidPadding);
+        }
+        if B64_URL_DECODE_VALID[byte as usize] == 0 {
+            return Err(B64DecodeError::InvalidByte { index, byte });
+        }
+    }
+
+    Ok((len / 4) * 3 - pad)
 }
 
 #[cfg(feature = "decode-parallel")]

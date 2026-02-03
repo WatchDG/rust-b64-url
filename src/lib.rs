@@ -30,6 +30,18 @@ const fn build_b64_url_decode_table() -> [u8; 256] {
 
 const B64_URL_DECODE: [u8; 256] = build_b64_url_decode_table();
 
+const fn build_b64_url_decode_valid_table() -> [u8; 256] {
+    let mut table = [0u8; 256];
+    let mut i = 0;
+    while i < 64 {
+        table[B64_URL_ENCODE[i] as usize] = 1;
+        i += 1;
+    }
+    table
+}
+
+const B64_URL_DECODE_VALID: [u8; 256] = build_b64_url_decode_valid_table();
+
 const B64_URL_PAD: u8 = 0x3d;
 
 const DEFAULT_CONFIG: B64Config = B64Config {
@@ -52,6 +64,14 @@ pub struct B64ConfigPadding {
 #[derive(Default)]
 pub struct B64Config {
     pub padding: B64ConfigPadding,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum B64DecodeError {
+    InvalidLength,
+    InvalidPadding,
+    InvalidByte { index: usize, byte: u8 },
+    OutputTooSmall { needed: usize, available: usize },
 }
 
 #[inline(always)]
@@ -117,6 +137,71 @@ pub fn b64_url_encode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
         return Some(0);
     }
     b64_url_encode_into_with_config(bytes, out, &DEFAULT_CONFIG)
+}
+
+#[inline(always)]
+pub fn b64_url_decode(bytes: &[u8]) -> Result<Vec<u8>, B64DecodeError> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+    b64_url_decode_with_config(bytes, &DEFAULT_CONFIG)
+}
+
+#[inline(always)]
+pub fn b64_url_decode_with_config(
+    bytes: &[u8],
+    config: &B64Config,
+) -> Result<Vec<u8>, B64DecodeError> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let needed = decode::b64_url_decode_validate(bytes, config.padding.omit)?;
+    let mut vec = Vec::<u8>::with_capacity(needed);
+    let written = if config.padding.omit {
+        unsafe { decode::unsafe_b64_url_decode_with_omit_padding_to_ptr(bytes, vec.as_mut_ptr()) }
+    } else {
+        unsafe { decode::unsafe_b64_url_decode_with_padding_to_ptr(bytes, vec.as_mut_ptr()) }
+    };
+    unsafe {
+        vec.set_len(written);
+    }
+    Ok(vec)
+}
+
+#[inline(always)]
+pub fn b64_url_decode_into_with_config(
+    bytes: &[u8],
+    out: &mut [u8],
+    config: &B64Config,
+) -> Result<usize, B64DecodeError> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    let needed = decode::b64_url_decode_validate(bytes, config.padding.omit)?;
+    if out.len() < needed {
+        return Err(B64DecodeError::OutputTooSmall {
+            needed,
+            available: out.len(),
+        });
+    }
+    let written = if config.padding.omit {
+        unsafe { decode::unsafe_b64_url_decode_with_omit_padding_to_ptr(bytes, out.as_mut_ptr()) }
+    } else {
+        unsafe { decode::unsafe_b64_url_decode_with_padding_to_ptr(bytes, out.as_mut_ptr()) }
+    };
+    Ok(written)
+}
+
+#[inline(always)]
+pub fn b64_url_decode_into(bytes: &[u8], out: &mut [u8]) -> Result<usize, B64DecodeError> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Ok(0);
+    }
+    b64_url_decode_into_with_config(bytes, out, &DEFAULT_CONFIG)
 }
 
 /// # Safety
