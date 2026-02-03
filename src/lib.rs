@@ -47,6 +47,10 @@ pub fn _b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
     length / 3 * 4 + 4
 }
 
+/// # Safety
+///
+/// Caller must ensure `source` and `destination` are valid for reads/writes of
+/// the specified lengths, and that the buffers do not overlap.
 #[inline(always)]
 pub unsafe fn _b64_url_encode_with_config(
     mut source: *const u8,
@@ -56,38 +60,48 @@ pub unsafe fn _b64_url_encode_with_config(
 ) -> usize {
     let mut bytes = 0;
     while source_length >= 3 {
-        let value = ((*source as u32) << 16)
-            | ((*source.offset(1) as u32) << 8)
-            | (*source.offset(2) as u32);
-        *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-        *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-        *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
-        source = source.offset(3);
-        destination = destination.offset(4);
+        let value = unsafe {
+            ((*source as u32) << 16)
+                | ((*source.offset(1) as u32) << 8)
+                | (*source.offset(2) as u32)
+        };
+        unsafe {
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+            *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+            *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
+            source = source.offset(3);
+            destination = destination.offset(4);
+        }
         source_length -= 3;
         bytes += 4;
     }
     match source_length {
         2 => {
-            let value = ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8);
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-            *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+            let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
+            unsafe {
+                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+            }
             if !config.padding.omit {
-                *destination.offset(3) = B64_URL_PAD;
+                unsafe { *destination.offset(3) = B64_URL_PAD };
                 bytes += 4;
             } else {
                 bytes += 3;
             }
         }
         1 => {
-            let value = (*source as u32) << 16;
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+            let value = unsafe { (*source as u32) << 16 };
+            unsafe {
+                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+            }
             if !config.padding.omit {
-                *destination.offset(2) = B64_URL_PAD;
-                *destination.offset(3) = B64_URL_PAD;
+                unsafe {
+                    *destination.offset(2) = B64_URL_PAD;
+                    *destination.offset(3) = B64_URL_PAD;
+                }
                 bytes += 4;
             } else {
                 bytes += 2;
