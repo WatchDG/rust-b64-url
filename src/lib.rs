@@ -47,6 +47,8 @@ const SIMD_THRESHOLD: usize = match option_env!("B64_URL__SIMD_THRESHOLD") {
     _ => 64,
 };
 
+mod decode;
+mod encode;
 #[cfg(all(
     any(feature = "simd", simd_env),
     any(target_arch = "x86", target_arch = "x86_64")
@@ -64,233 +66,52 @@ pub struct B64Config {
 }
 
 #[inline(always)]
-pub fn _b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
-    length / 3 * 4 + 4
-}
-
-#[inline(always)]
-unsafe fn encode_tail_2_with_padding(source: *const u8, destination: *mut u8) {
-    let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
-    unsafe {
-        #[cfg(feature = "encode-lut")]
-        {
-            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-            *destination = (pair_hi >> 8) as u8;
-            *destination.offset(1) = pair_hi as u8;
-        }
-        #[cfg(not(feature = "encode-lut"))]
-        {
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-        }
-        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-        *destination.offset(3) = B64_URL_PAD;
-    }
-}
-
-#[inline(always)]
-unsafe fn encode_tail_2_without_padding(source: *const u8, destination: *mut u8) {
-    let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
-    unsafe {
-        #[cfg(feature = "encode-lut")]
-        {
-            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-            *destination = (pair_hi >> 8) as u8;
-            *destination.offset(1) = pair_hi as u8;
-        }
-        #[cfg(not(feature = "encode-lut"))]
-        {
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-        }
-        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-    }
-}
-
-#[inline(always)]
-unsafe fn encode_tail_1_with_padding(source: *const u8, destination: *mut u8) {
-    let value = unsafe { (*source as u32) << 16 };
-    unsafe {
-        #[cfg(feature = "encode-lut")]
-        {
-            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-            *destination = (pair_hi >> 8) as u8;
-            *destination.offset(1) = pair_hi as u8;
-        }
-        #[cfg(not(feature = "encode-lut"))]
-        {
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-        }
-        *destination.offset(2) = B64_URL_PAD;
-        *destination.offset(3) = B64_URL_PAD;
-    }
-}
-
-#[inline(always)]
-unsafe fn encode_tail_1_without_padding(source: *const u8, destination: *mut u8) {
-    let value = unsafe { (*source as u32) << 16 };
-    unsafe {
-        #[cfg(feature = "encode-lut")]
-        {
-            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-            *destination = (pair_hi >> 8) as u8;
-            *destination.offset(1) = pair_hi as u8;
-        }
-        #[cfg(not(feature = "encode-lut"))]
-        {
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-        }
-    }
-}
-
-/// # Safety
-///
-/// Caller must ensure `source` and `destination` are valid for reads/writes of
-/// the specified lengths, and that the buffers do not overlap.
-#[inline(always)]
-pub unsafe fn _b64_url_encode_with_config(
-    mut source: *const u8,
-    mut source_length: usize,
-    mut destination: *mut u8,
-    config: &B64Config,
-) -> usize {
-    let mut bytes = 0;
-    #[cfg(all(
-        any(feature = "simd", simd_env),
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    {
-        if source_length >= SIMD_THRESHOLD {
-            let mut in_ptr = source;
-            let mut out_ptr = destination;
-            let mut left = source_length - (source_length % 3);
-
-            #[cfg(any(feature = "simd-avx512-encode", simd_avx512_encode_env))]
-            if left >= 48 && std::arch::is_x86_feature_detected!("avx512f") {
-                while left >= 48 {
-                    out_ptr = unsafe { simd::encode_48_bytes_avx512(in_ptr, out_ptr) };
-                    in_ptr = unsafe { in_ptr.add(48) };
-                    left -= 48;
-                    bytes += 64;
-                }
-            }
-
-            #[cfg(any(feature = "simd-avx2-encode", simd_avx2_encode_env))]
-            if left >= 24 && std::arch::is_x86_feature_detected!("avx2") {
-                while left >= 24 {
-                    out_ptr = unsafe { simd::encode_24_bytes_avx2(in_ptr, out_ptr) };
-                    in_ptr = unsafe { in_ptr.add(24) };
-                    left -= 24;
-                    bytes += 32;
-                }
-            }
-
-            #[cfg(any(
-                feature = "simd-ssse3-encode",
-                simd_ssse3_encode_env,
-                feature = "simd-sse2-encode",
-                simd_sse2_encode_env
-            ))]
-            if left >= 12 {
-                if (cfg!(feature = "simd-ssse3-encode") || cfg!(simd_ssse3_encode_env))
-                    && std::arch::is_x86_feature_detected!("ssse3")
-                {
-                    while left >= 12 {
-                        out_ptr = unsafe { simd::encode_12_bytes_ssse3(in_ptr, out_ptr) };
-                        in_ptr = unsafe { in_ptr.add(12) };
-                        left -= 12;
-                        bytes += 16;
-                    }
-                } else if (cfg!(feature = "simd-sse2-encode") || cfg!(simd_sse2_encode_env))
-                    && std::arch::is_x86_feature_detected!("sse2")
-                {
-                    while left >= 12 {
-                        out_ptr = unsafe { simd::encode_12_bytes_sse2(in_ptr, out_ptr) };
-                        in_ptr = unsafe { in_ptr.add(12) };
-                        left -= 12;
-                        bytes += 16;
-                    }
-                }
-            }
-
-            source = in_ptr;
-            destination = out_ptr;
-            source_length = left + (source_length % 3);
-        }
-    }
-    while source_length >= 3 {
-        let value = unsafe {
-            ((*source as u32) << 16)
-                | ((*source.offset(1) as u32) << 8)
-                | (*source.offset(2) as u32)
-        };
-        #[cfg(feature = "encode-lut")]
-        {
-            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-            let pair_lo = B64_URL_ENCODE_LUT[(value & 0x0fff) as usize];
-            unsafe {
-                *destination = (pair_hi >> 8) as u8;
-                *destination.offset(1) = pair_hi as u8;
-                *destination.offset(2) = (pair_lo >> 8) as u8;
-                *destination.offset(3) = pair_lo as u8;
-                source = source.offset(3);
-                destination = destination.offset(4);
-            }
-        }
-        #[cfg(not(feature = "encode-lut"))]
-        {
-            unsafe {
-                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-                *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-                *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
-                source = source.offset(3);
-                destination = destination.offset(4);
-            }
-        }
-        source_length -= 3;
-        bytes += 4;
-    }
-    match source_length {
-        2 => {
-            if config.padding.omit {
-                unsafe { encode_tail_2_without_padding(source, destination) };
-                bytes += 3;
-            } else {
-                unsafe { encode_tail_2_with_padding(source, destination) };
-                bytes += 4;
-            }
-        }
-        1 => {
-            if config.padding.omit {
-                unsafe { encode_tail_1_without_padding(source, destination) };
-                bytes += 2;
-            } else {
-                unsafe { encode_tail_1_with_padding(source, destination) };
-                bytes += 4;
-            }
-        }
-        _ => {}
-    }
-    bytes
-}
-
-#[inline(always)]
 pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
     let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(_b64_url_encode_calculate_destination_capacity(length));
+    let mut vec = Vec::<u8>::with_capacity(encode::b64_url_encode_calculate_destination_capacity(
+        length,
+    ));
     unsafe {
-        let bytes = _b64_url_encode_with_config(bytes.as_ptr(), length, vec.as_mut_ptr(), config);
+        let bytes = encode::b64_url_encode_with_config_to_ptr(
+            bytes.as_ptr(),
+            length,
+            vec.as_mut_ptr(),
+            config,
+        );
         vec.set_len(bytes);
     }
     vec
 }
 
 #[inline(always)]
+pub fn b64_url_encode_into_with_config(
+    bytes: &[u8],
+    out: &mut [u8],
+    config: &B64Config,
+) -> Option<usize> {
+    let needed = encode::b64_url_encode_calculate_exact_length(bytes.len(), config.padding.omit);
+    if out.len() < needed {
+        return None;
+    }
+    let written = unsafe {
+        encode::b64_url_encode_with_config_to_ptr(
+            bytes.as_ptr(),
+            bytes.len(),
+            out.as_mut_ptr(),
+            config,
+        )
+    };
+    Some(written)
+}
+
+#[inline(always)]
 pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
     b64_url_encode_with_config(bytes, &DEFAULT_CONFIG)
+}
+
+#[inline(always)]
+pub fn b64_url_encode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+    b64_url_encode_into_with_config(bytes, out, &DEFAULT_CONFIG)
 }
 
 /// # Safety
@@ -307,242 +128,36 @@ pub unsafe fn unsafe_b64_url_decode(bytes: &[u8]) -> Vec<u8> {
 #[inline(always)]
 pub unsafe fn unsafe_b64_url_decode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
     if config.padding.omit {
-        return unsafe { unsafe_b64_url_decode_with_omit_padding(bytes) };
+        return unsafe { decode::unsafe_b64_url_decode_with_omit_padding(bytes) };
     }
-    unsafe { unsafe_b64_url_decode_with_padding(bytes) }
-}
-
-#[inline(always)]
-unsafe fn decode_4_to_ptr(chunk: &[u8], out: *mut u8) -> *mut u8 {
-    let b0 = unsafe { *chunk.get_unchecked(0) as usize };
-    let b1 = unsafe { *chunk.get_unchecked(1) as usize };
-    let b2 = unsafe { *chunk.get_unchecked(2) as usize };
-    let b3 = unsafe { *chunk.get_unchecked(3) as usize };
-    let value = ((B64_URL_DECODE[b0] as u32) << 18)
-        | ((B64_URL_DECODE[b1] as u32) << 12)
-        | ((B64_URL_DECODE[b2] as u32) << 6)
-        | (B64_URL_DECODE[b3] as u32);
-    unsafe {
-        *out = ((value >> 16) & 0b1111_1111) as u8;
-        *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-        *out.add(2) = (value & 0b1111_1111) as u8;
-        out.add(3)
-    }
+    unsafe { decode::unsafe_b64_url_decode_with_padding(bytes) }
 }
 
 /// # Safety
 ///
 /// This function should not be called without checking the input value.
 #[inline(always)]
-unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
-    let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
-    let mut out = vec.as_mut_ptr();
-    let mut out_len = 0usize;
-    #[cfg(all(
-        any(feature = "simd", simd_env),
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    let mut processed = 0usize;
-    #[cfg(not(all(
-        any(feature = "simd", simd_env),
-        any(target_arch = "x86", target_arch = "x86_64")
-    )))]
-    let processed = 0usize;
-    #[cfg(all(
-        any(feature = "simd", simd_env),
-        any(target_arch = "x86", target_arch = "x86_64")
-    ))]
-    if length >= SIMD_THRESHOLD {
-        let mut in_ptr = bytes.as_ptr();
-        #[cfg(any(feature = "simd-avx512-decode", simd_avx512_env))]
-        if std::arch::is_x86_feature_detected!("avx512f") {
-            let simd_blocks = length / 64;
-            for _ in 0..simd_blocks {
-                out = unsafe { simd::decode_64_bytes_avx512(in_ptr, out) };
-                in_ptr = unsafe { in_ptr.add(64) };
-                out_len += 48;
-            }
-            processed = simd_blocks * 64;
-        } else if (cfg!(feature = "simd-avx2-decode") || cfg!(simd_avx2_env))
-            && std::arch::is_x86_feature_detected!("avx2")
-        {
-            let simd_blocks = length / 32;
-            for _ in 0..simd_blocks {
-                out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
-                in_ptr = unsafe { in_ptr.add(32) };
-                out_len += 24;
-            }
-            processed = simd_blocks * 32;
-        } else if (cfg!(feature = "simd-ssse3-decode") || cfg!(simd_ssse3_decode_env))
-            && std::arch::is_x86_feature_detected!("ssse3")
-        {
-            let simd_blocks = length / 16;
-            for _ in 0..simd_blocks {
-                out = unsafe { simd::decode_16_bytes_ssse3(in_ptr, out) };
-                in_ptr = unsafe { in_ptr.add(16) };
-                out_len += 12;
-            }
-            processed = simd_blocks * 16;
-        } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
-            && std::arch::is_x86_feature_detected!("sse2")
-        {
-            let simd_blocks = length / 16;
-            for _ in 0..simd_blocks {
-                out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
-                in_ptr = unsafe { in_ptr.add(16) };
-                out_len += 12;
-            }
-            processed = simd_blocks * 16;
-        }
+pub unsafe fn unsafe_b64_url_decode_into_with_config(
+    bytes: &[u8],
+    out: &mut [u8],
+    config: &B64Config,
+) -> Option<usize> {
+    let needed = decode::b64_url_decode_calculate_exact_length(bytes, config.padding.omit)?;
+    if out.len() < needed {
+        return None;
     }
-    let mut chunks = bytes[processed..].chunks_exact(4);
-    for chunk in chunks.by_ref() {
-        out = unsafe { decode_4_to_ptr(chunk, out) };
-        out_len += 3;
-    }
-    let remainder = chunks.remainder();
-    match remainder.len() {
-        2 => {
-            let b0 = unsafe { *remainder.get_unchecked(0) as usize };
-            let b1 = unsafe { *remainder.get_unchecked(1) as usize };
-            let value = ((B64_URL_DECODE[b0] as u32) << 18) | ((B64_URL_DECODE[b1] as u32) << 12);
-            unsafe {
-                *out = ((value >> 16) & 0b1111_1111) as u8;
-            }
-            out_len += 1;
-        }
-        3 => {
-            let b0 = unsafe { *remainder.get_unchecked(0) as usize };
-            let b1 = unsafe { *remainder.get_unchecked(1) as usize };
-            let b2 = unsafe { *remainder.get_unchecked(2) as usize };
-            let value = ((B64_URL_DECODE[b0] as u32) << 18)
-                | ((B64_URL_DECODE[b1] as u32) << 12)
-                | ((B64_URL_DECODE[b2] as u32) << 6);
-            unsafe {
-                *out = ((value >> 16) & 0b1111_1111) as u8;
-                *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-            }
-            out_len += 2;
-        }
-        _ => {}
-    }
-    unsafe {
-        vec.set_len(out_len);
-    }
-    vec
+    let written = if config.padding.omit {
+        unsafe { decode::unsafe_b64_url_decode_with_omit_padding_to_ptr(bytes, out.as_mut_ptr()) }
+    } else {
+        unsafe { decode::unsafe_b64_url_decode_with_padding_to_ptr(bytes, out.as_mut_ptr()) }
+    };
+    Some(written)
 }
 
 /// # Safety
 ///
 /// This function should not be called without checking the input value.
 #[inline(always)]
-unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
-    let length = bytes.len();
-    let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
-    let mut out = vec.as_mut_ptr();
-    let mut out_len = 0usize;
-    let chunk_count = length / 4;
-    if chunk_count > 0 {
-        let bulk_chunks = chunk_count.saturating_sub(1);
-        #[cfg(all(
-            any(feature = "simd", simd_env),
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        let mut processed = 0usize;
-        #[cfg(not(all(
-            any(feature = "simd", simd_env),
-            any(target_arch = "x86", target_arch = "x86_64")
-        )))]
-        let processed = 0usize;
-        #[cfg(all(
-            any(feature = "simd", simd_env),
-            any(target_arch = "x86", target_arch = "x86_64")
-        ))]
-        if bulk_chunks * 4 >= SIMD_THRESHOLD {
-            let mut in_ptr = bytes.as_ptr();
-            #[cfg(any(feature = "simd-avx512-decode", simd_avx512_env))]
-            if std::arch::is_x86_feature_detected!("avx512f") {
-                let simd_blocks = (bulk_chunks * 4) / 64;
-                for _ in 0..simd_blocks {
-                    out = unsafe { simd::decode_64_bytes_avx512(in_ptr, out) };
-                    in_ptr = unsafe { in_ptr.add(64) };
-                    out_len += 48;
-                }
-                processed = simd_blocks * 64;
-            } else if (cfg!(feature = "simd-avx2-decode") || cfg!(simd_avx2_env))
-                && std::arch::is_x86_feature_detected!("avx2")
-            {
-                let simd_blocks = (bulk_chunks * 4) / 32;
-                for _ in 0..simd_blocks {
-                    out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
-                    in_ptr = unsafe { in_ptr.add(32) };
-                    out_len += 24;
-                }
-                processed = simd_blocks * 32;
-            } else if (cfg!(feature = "simd-ssse3-decode") || cfg!(simd_ssse3_decode_env))
-                && std::arch::is_x86_feature_detected!("ssse3")
-            {
-                let simd_blocks = (bulk_chunks * 4) / 16;
-                for _ in 0..simd_blocks {
-                    out = unsafe { simd::decode_16_bytes_ssse3(in_ptr, out) };
-                    in_ptr = unsafe { in_ptr.add(16) };
-                    out_len += 12;
-                }
-                processed = simd_blocks * 16;
-            } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
-                && std::arch::is_x86_feature_detected!("sse2")
-            {
-                let simd_blocks = (bulk_chunks * 4) / 16;
-                for _ in 0..simd_blocks {
-                    out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
-                    in_ptr = unsafe { in_ptr.add(16) };
-                    out_len += 12;
-                }
-                processed = simd_blocks * 16;
-            }
-        }
-        let mut chunks = bytes[processed..(bulk_chunks * 4)].chunks_exact(4);
-        for chunk in chunks.by_ref() {
-            out = unsafe { decode_4_to_ptr(chunk, out) };
-            out_len += 3;
-        }
-        let last_start = bulk_chunks * 4;
-        let last = unsafe { bytes.get_unchecked(last_start..last_start + 4) };
-        let b0 = unsafe { *last.get_unchecked(0) as usize };
-        let b1 = unsafe { *last.get_unchecked(1) as usize };
-        let b2 = unsafe { *last.get_unchecked(2) };
-        let b3 = unsafe { *last.get_unchecked(3) };
-        let mut value = ((B64_URL_DECODE[b0] as u32) << 18) | ((B64_URL_DECODE[b1] as u32) << 12);
-        match (b2 == B64_URL_PAD, b3 == B64_URL_PAD) {
-            (true, _) => {
-                unsafe {
-                    *out = ((value >> 16) & 0b1111_1111) as u8;
-                }
-                out_len += 1;
-            }
-            (false, true) => {
-                value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
-                unsafe {
-                    *out = ((value >> 16) & 0b1111_1111) as u8;
-                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-                }
-                out_len += 2;
-            }
-            (false, false) => {
-                value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
-                value |= B64_URL_DECODE[b3 as usize] as u32;
-                unsafe {
-                    *out = ((value >> 16) & 0b1111_1111) as u8;
-                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-                    *out.add(2) = (value & 0b1111_1111) as u8;
-                }
-                out_len += 3;
-            }
-        }
-    }
-    unsafe {
-        vec.set_len(out_len);
-    }
-    vec
+pub unsafe fn unsafe_b64_url_decode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+    unsafe { unsafe_b64_url_decode_into_with_config(bytes, out, &DEFAULT_CONFIG) }
 }
