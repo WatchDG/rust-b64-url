@@ -16,9 +16,14 @@ edition = "2024"
 
 [features]
 simd = []
-simd-sse2 = []
-simd-avx2 = []
-simd-avx512 = []
-simd-threshold-32 = []
-simd-threshold-128 = []
-simd-threshold-256 = []
+simd-sse2-decode = []
+simd-avx2-decode = []
+simd-avx512-decode = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = [
+  "cfg(simd_env)",
+  "cfg(simd_sse2_env)",
+  "cfg(simd_avx2_env)",
+  "cfg(simd_avx512_env)",
+] }

@@ -19,18 +19,21 @@ const DEFAULT_CONFIG: B64Config = B64Config {
     padding: B64ConfigPadding { omit: false },
 };
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
-const SIMD_THRESHOLD: usize = if cfg!(feature = "simd-threshold-32") {
-    32
-} else if cfg!(feature = "simd-threshold-128") {
-    128
-} else if cfg!(feature = "simd-threshold-256") {
-    256
-} else {
-    64
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+const SIMD_THRESHOLD: usize = match option_env!("B64_URL__SIMD_THRESHOLD") {
+    Some("32") => 32,
+    Some("128") => 128,
+    Some("256") => 256,
+    _ => 64,
 };
 
-#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
 mod simd;
 
 #[derive(Default)]
@@ -175,14 +178,23 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
     let mut out = vec.as_mut_ptr();
     let mut out_len = 0usize;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(
+        any(feature = "simd", simd_env),
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
     let mut processed = 0usize;
-    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    #[cfg(not(all(
+        any(feature = "simd", simd_env),
+        any(target_arch = "x86", target_arch = "x86_64")
+    )))]
     let processed = 0usize;
-    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+    #[cfg(all(
+        any(feature = "simd", simd_env),
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
     if length >= SIMD_THRESHOLD {
         let mut in_ptr = bytes.as_ptr();
-        #[cfg(feature = "simd-avx512")]
+        #[cfg(any(feature = "simd-avx512-decode", simd_avx512_env))]
         if std::arch::is_x86_feature_detected!("avx512f") {
             let simd_blocks = length / 64;
             for _ in 0..simd_blocks {
@@ -191,7 +203,9 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
                 out_len += 48;
             }
             processed = simd_blocks * 64;
-        } else if cfg!(feature = "simd-avx2") && std::arch::is_x86_feature_detected!("avx2") {
+        } else if (cfg!(feature = "simd-avx2-decode") || cfg!(simd_avx2_env))
+            && std::arch::is_x86_feature_detected!("avx2")
+        {
             let simd_blocks = length / 32;
             for _ in 0..simd_blocks {
                 out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
@@ -199,7 +213,9 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
                 out_len += 24;
             }
             processed = simd_blocks * 32;
-        } else if cfg!(feature = "simd-sse2") && std::arch::is_x86_feature_detected!("sse2") {
+        } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
+            && std::arch::is_x86_feature_detected!("sse2")
+        {
             let simd_blocks = length / 16;
             for _ in 0..simd_blocks {
                 out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
@@ -252,14 +268,23 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
     let chunk_count = length / 4;
     if chunk_count > 0 {
         let bulk_chunks = chunk_count.saturating_sub(1);
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(
+            any(feature = "simd", simd_env),
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
         let mut processed = 0usize;
-        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        #[cfg(not(all(
+            any(feature = "simd", simd_env),
+            any(target_arch = "x86", target_arch = "x86_64")
+        )))]
         let processed = 0usize;
-        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
+        #[cfg(all(
+            any(feature = "simd", simd_env),
+            any(target_arch = "x86", target_arch = "x86_64")
+        ))]
         if bulk_chunks * 4 >= SIMD_THRESHOLD {
             let mut in_ptr = bytes.as_ptr();
-            #[cfg(feature = "simd-avx512")]
+            #[cfg(any(feature = "simd-avx512-decode", simd_avx512_env))]
             if std::arch::is_x86_feature_detected!("avx512f") {
                 let simd_blocks = (bulk_chunks * 4) / 64;
                 for _ in 0..simd_blocks {
@@ -268,7 +293,9 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     out_len += 48;
                 }
                 processed = simd_blocks * 64;
-            } else if cfg!(feature = "simd-avx2") && std::arch::is_x86_feature_detected!("avx2") {
+            } else if (cfg!(feature = "simd-avx2-decode") || cfg!(simd_avx2_env))
+                && std::arch::is_x86_feature_detected!("avx2")
+            {
                 let simd_blocks = (bulk_chunks * 4) / 32;
                 for _ in 0..simd_blocks {
                     out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
@@ -276,7 +303,9 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     out_len += 24;
                 }
                 processed = simd_blocks * 32;
-            } else if cfg!(feature = "simd-sse2") && std::arch::is_x86_feature_detected!("sse2") {
+            } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
+                && std::arch::is_x86_feature_detected!("sse2")
+            {
                 let simd_blocks = (bulk_chunks * 4) / 16;
                 for _ in 0..simd_blocks {
                     out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
