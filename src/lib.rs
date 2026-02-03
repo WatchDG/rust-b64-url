@@ -68,6 +68,83 @@ pub fn _b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
     length / 3 * 4 + 4
 }
 
+#[inline(always)]
+unsafe fn encode_tail_2_with_padding(source: *const u8, destination: *mut u8) {
+    let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
+    unsafe {
+        #[cfg(feature = "encode-lut")]
+        {
+            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+            *destination = (pair_hi >> 8) as u8;
+            *destination.offset(1) = pair_hi as u8;
+        }
+        #[cfg(not(feature = "encode-lut"))]
+        {
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+        }
+        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+        *destination.offset(3) = B64_URL_PAD;
+    }
+}
+
+#[inline(always)]
+unsafe fn encode_tail_2_without_padding(source: *const u8, destination: *mut u8) {
+    let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
+    unsafe {
+        #[cfg(feature = "encode-lut")]
+        {
+            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+            *destination = (pair_hi >> 8) as u8;
+            *destination.offset(1) = pair_hi as u8;
+        }
+        #[cfg(not(feature = "encode-lut"))]
+        {
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+        }
+        *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+    }
+}
+
+#[inline(always)]
+unsafe fn encode_tail_1_with_padding(source: *const u8, destination: *mut u8) {
+    let value = unsafe { (*source as u32) << 16 };
+    unsafe {
+        #[cfg(feature = "encode-lut")]
+        {
+            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+            *destination = (pair_hi >> 8) as u8;
+            *destination.offset(1) = pair_hi as u8;
+        }
+        #[cfg(not(feature = "encode-lut"))]
+        {
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+        }
+        *destination.offset(2) = B64_URL_PAD;
+        *destination.offset(3) = B64_URL_PAD;
+    }
+}
+
+#[inline(always)]
+unsafe fn encode_tail_1_without_padding(source: *const u8, destination: *mut u8) {
+    let value = unsafe { (*source as u32) << 16 };
+    unsafe {
+        #[cfg(feature = "encode-lut")]
+        {
+            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+            *destination = (pair_hi >> 8) as u8;
+            *destination.offset(1) = pair_hi as u8;
+        }
+        #[cfg(not(feature = "encode-lut"))]
+        {
+            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+        }
+    }
+}
+
 /// # Safety
 ///
 /// Caller must ensure `source` and `destination` are valid for reads/writes of
@@ -115,51 +192,21 @@ pub unsafe fn _b64_url_encode_with_config(
     }
     match source_length {
         2 => {
-            let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
-            unsafe {
-                #[cfg(feature = "encode-lut")]
-                {
-                    let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-                    *destination = (pair_hi >> 8) as u8;
-                    *destination.offset(1) = pair_hi as u8;
-                }
-                #[cfg(not(feature = "encode-lut"))]
-                {
-                    *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-                    *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-                }
-                *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-            }
-            if !config.padding.omit {
-                unsafe { *destination.offset(3) = B64_URL_PAD };
-                bytes += 4;
-            } else {
+            if config.padding.omit {
+                unsafe { encode_tail_2_without_padding(source, destination) };
                 bytes += 3;
+            } else {
+                unsafe { encode_tail_2_with_padding(source, destination) };
+                bytes += 4;
             }
         }
         1 => {
-            let value = unsafe { (*source as u32) << 16 };
-            unsafe {
-                #[cfg(feature = "encode-lut")]
-                {
-                    let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
-                    *destination = (pair_hi >> 8) as u8;
-                    *destination.offset(1) = pair_hi as u8;
-                }
-                #[cfg(not(feature = "encode-lut"))]
-                {
-                    *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-                    *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-                }
-            }
-            if !config.padding.omit {
-                unsafe {
-                    *destination.offset(2) = B64_URL_PAD;
-                    *destination.offset(3) = B64_URL_PAD;
-                }
-                bytes += 4;
-            } else {
+            if config.padding.omit {
+                unsafe { encode_tail_1_without_padding(source, destination) };
                 bytes += 2;
+            } else {
+                unsafe { encode_tail_1_with_padding(source, destination) };
+                bytes += 4;
             }
         }
         _ => {}
@@ -282,24 +329,30 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
         out_len += 3;
     }
     let remainder = chunks.remainder();
-    if remainder.len() >= 2 {
-        let b0 = unsafe { *remainder.get_unchecked(0) as usize };
-        let b1 = unsafe { *remainder.get_unchecked(1) as usize };
-        let mut value = ((B64_URL_DECODE[b0] as u32) << 18) | ((B64_URL_DECODE[b1] as u32) << 12);
-        if remainder.len() >= 3 {
-            let b2 = unsafe { *remainder.get_unchecked(2) as usize };
-            value |= (B64_URL_DECODE[b2] as u32) << 6;
-            unsafe {
-                *out = ((value >> 16) & 0b1111_1111) as u8;
-                *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-            }
-            out_len += 2;
-        } else {
+    match remainder.len() {
+        2 => {
+            let b0 = unsafe { *remainder.get_unchecked(0) as usize };
+            let b1 = unsafe { *remainder.get_unchecked(1) as usize };
+            let value = ((B64_URL_DECODE[b0] as u32) << 18) | ((B64_URL_DECODE[b1] as u32) << 12);
             unsafe {
                 *out = ((value >> 16) & 0b1111_1111) as u8;
             }
             out_len += 1;
         }
+        3 => {
+            let b0 = unsafe { *remainder.get_unchecked(0) as usize };
+            let b1 = unsafe { *remainder.get_unchecked(1) as usize };
+            let b2 = unsafe { *remainder.get_unchecked(2) as usize };
+            let value = ((B64_URL_DECODE[b0] as u32) << 18)
+                | ((B64_URL_DECODE[b1] as u32) << 12)
+                | ((B64_URL_DECODE[b2] as u32) << 6);
+            unsafe {
+                *out = ((value >> 16) & 0b1111_1111) as u8;
+                *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+            }
+            out_len += 2;
+        }
+        _ => {}
     }
     unsafe {
         vec.set_len(out_len);
@@ -378,9 +431,23 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
         let b2 = unsafe { *last.get_unchecked(2) };
         let b3 = unsafe { *last.get_unchecked(3) };
         let mut value = ((B64_URL_DECODE[b0] as u32) << 18) | ((B64_URL_DECODE[b1] as u32) << 12);
-        if b2 != B64_URL_PAD {
-            value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
-            if b3 != B64_URL_PAD {
+        match (b2 == B64_URL_PAD, b3 == B64_URL_PAD) {
+            (true, _) => {
+                unsafe {
+                    *out = ((value >> 16) & 0b1111_1111) as u8;
+                }
+                out_len += 1;
+            }
+            (false, true) => {
+                value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
+                unsafe {
+                    *out = ((value >> 16) & 0b1111_1111) as u8;
+                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
+                }
+                out_len += 2;
+            }
+            (false, false) => {
+                value |= (B64_URL_DECODE[b2 as usize] as u32) << 6;
                 value |= B64_URL_DECODE[b3 as usize] as u32;
                 unsafe {
                     *out = ((value >> 16) & 0b1111_1111) as u8;
@@ -388,18 +455,7 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     *out.add(2) = (value & 0b1111_1111) as u8;
                 }
                 out_len += 3;
-            } else {
-                unsafe {
-                    *out = ((value >> 16) & 0b1111_1111) as u8;
-                    *out.add(1) = ((value >> 8) & 0b1111_1111) as u8;
-                }
-                out_len += 2;
             }
-        } else {
-            unsafe {
-                *out = ((value >> 16) & 0b1111_1111) as u8;
-            }
-            out_len += 1;
         }
     }
     unsafe {
