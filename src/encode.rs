@@ -1,11 +1,11 @@
 #[cfg(feature = "encode-lut")]
-use super::B64_URL_ENCODE_LUT;
+use super::constants::B64_URL_ENCODE_LUT;
 #[cfg(all(
     any(feature = "simd", simd_env),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 use super::simd;
-use super::{B64_URL_ENCODE, B64_URL_PAD, B64Config};
+use super::{B64Config, constants::B64_URL_ENCODE, constants::B64_URL_PAD};
 #[cfg(feature = "encode-parallel")]
 use rayon::prelude::*;
 
@@ -38,9 +38,7 @@ pub(crate) fn b64_url_encode_calculate_exact_length(length: usize, omit_padding:
 }
 
 #[cfg(feature = "encode-parallel")]
-const PARALLEL_ENCODE_THRESHOLD: usize = 1 << 20;
-#[cfg(feature = "encode-parallel")]
-const PARALLEL_ENCODE_CHUNK: usize = 3 * 4096;
+use super::constants::{PARALLEL_ENCODE_CHUNK, PARALLEL_ENCODE_THRESHOLD};
 
 #[cfg(all(
     any(feature = "simd", simd_env),

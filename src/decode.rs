@@ -5,7 +5,10 @@
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
 use super::simd;
-use super::{B64DecodeError, B64_URL_DECODE, B64_URL_DECODE_VALID, B64_URL_PAD};
+use super::{
+    B64DecodeError,
+    constants::{B64_URL_DECODE, B64_URL_DECODE_VALID, B64_URL_PAD},
+};
 #[cfg(feature = "decode-parallel")]
 use rayon::prelude::*;
 
@@ -111,7 +114,7 @@ pub(crate) fn b64_url_decode_validate(
 }
 
 #[cfg(feature = "decode-parallel")]
-const PARALLEL_DECODE_THRESHOLD: usize = 1 << 20;
+use super::constants::PARALLEL_DECODE_THRESHOLD;
 
 #[cfg(all(
     any(feature = "simd", simd_env),

@@ -1,6 +1,6 @@
 #[cfg(feature = "encode-lut")]
-use super::B64_URL_ENCODE_LUT;
-use super::{B64_URL_DECODE, B64_URL_ENCODE};
+use super::constants::B64_URL_ENCODE_LUT;
+use super::constants::{B64_URL_DECODE, B64_URL_ENCODE};
 #[cfg(target_arch = "x86")]
 use core::arch::x86::*;
 #[cfg(target_arch = "x86_64")]
