@@ -15,6 +15,7 @@ edition = "2024"
 [dependencies]
 
 [features]
+default = ["encode-empty-check", "decode-empty-check", "encode-lut"]
 simd = []
 simd-ssse3-decode = []
 simd-sse2-decode = []
