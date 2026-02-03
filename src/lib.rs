@@ -19,6 +19,7 @@ const DEFAULT_CONFIG: B64Config = B64Config {
     padding: B64ConfigPadding { omit: false },
 };
 
+#[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
 const SIMD_THRESHOLD: usize = if cfg!(feature = "simd-threshold-32") {
     32
 } else if cfg!(feature = "simd-threshold-128") {
@@ -174,7 +175,10 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
     let mut vec = Vec::<u8>::with_capacity(length * 3 / 4);
     let mut out = vec.as_mut_ptr();
     let mut out_len = 0usize;
+    #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     let mut processed = 0usize;
+    #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+    let processed = 0usize;
     #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
     if length >= SIMD_THRESHOLD {
         let mut in_ptr = bytes.as_ptr();
@@ -248,7 +252,10 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
     let chunk_count = length / 4;
     if chunk_count > 0 {
         let bulk_chunks = chunk_count.saturating_sub(1);
+        #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         let mut processed = 0usize;
+        #[cfg(not(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64"))))]
+        let processed = 0usize;
         #[cfg(all(feature = "simd", any(target_arch = "x86", target_arch = "x86_64")))]
         if bulk_chunks * 4 >= SIMD_THRESHOLD {
             let mut in_ptr = bytes.as_ptr();
