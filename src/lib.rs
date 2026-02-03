@@ -1,4 +1,4 @@
-pub const B64_URL_ENCODE: [u8; 64] =
+const B64_URL_ENCODE: [u8; 64] =
     *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
 #[cfg(feature = "encode-lut")]
@@ -28,9 +28,9 @@ const fn build_b64_url_decode_table() -> [u8; 256] {
     table
 }
 
-pub const B64_URL_DECODE: [u8; 256] = build_b64_url_decode_table();
+const B64_URL_DECODE: [u8; 256] = build_b64_url_decode_table();
 
-pub const B64_URL_PAD: u8 = 0x3d;
+const B64_URL_PAD: u8 = 0x3d;
 
 const DEFAULT_CONFIG: B64Config = B64Config {
     padding: B64ConfigPadding { omit: false },
@@ -157,6 +157,51 @@ pub unsafe fn _b64_url_encode_with_config(
     config: &B64Config,
 ) -> usize {
     let mut bytes = 0;
+    #[cfg(all(
+        any(feature = "simd", simd_env),
+        any(target_arch = "x86", target_arch = "x86_64")
+    ))]
+    {
+        if source_length >= SIMD_THRESHOLD {
+            let mut in_ptr = source;
+            let mut out_ptr = destination;
+            let mut left = source_length - (source_length % 3);
+
+            #[cfg(any(feature = "simd-avx512-encode", simd_avx512_encode_env))]
+            if left >= 48 && std::arch::is_x86_feature_detected!("avx512f") {
+                while left >= 48 {
+                    out_ptr = unsafe { simd::encode_48_bytes_avx512(in_ptr, out_ptr) };
+                    in_ptr = unsafe { in_ptr.add(48) };
+                    left -= 48;
+                    bytes += 64;
+                }
+            }
+
+            #[cfg(any(feature = "simd-avx2-encode", simd_avx2_encode_env))]
+            if left >= 24 && std::arch::is_x86_feature_detected!("avx2") {
+                while left >= 24 {
+                    out_ptr = unsafe { simd::encode_24_bytes_avx2(in_ptr, out_ptr) };
+                    in_ptr = unsafe { in_ptr.add(24) };
+                    left -= 24;
+                    bytes += 32;
+                }
+            }
+
+            #[cfg(any(feature = "simd-sse2-encode", simd_sse2_encode_env))]
+            if left >= 12 && std::arch::is_x86_feature_detected!("sse2") {
+                while left >= 12 {
+                    out_ptr = unsafe { simd::encode_12_bytes_sse2(in_ptr, out_ptr) };
+                    in_ptr = unsafe { in_ptr.add(12) };
+                    left -= 12;
+                    bytes += 16;
+                }
+            }
+
+            source = in_ptr;
+            destination = out_ptr;
+            source_length = left + (source_length % 3);
+        }
+    }
     while source_length >= 3 {
         let value = unsafe {
             ((*source as u32) << 16)
