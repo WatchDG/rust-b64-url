@@ -4,6 +4,7 @@ fn main() {
     println!("cargo:rustc-check-cfg=cfg(simd_env)");
     println!("cargo:rustc-check-cfg=cfg(simd_sse2_env)");
     println!("cargo:rustc-check-cfg=cfg(simd_sse2_encode_env)");
+    println!("cargo:rustc-check-cfg=cfg(simd_ssse3_encode_env)");
     println!("cargo:rustc-check-cfg=cfg(simd_avx2_env)");
     println!("cargo:rustc-check-cfg=cfg(simd_avx2_encode_env)");
     println!("cargo:rustc-check-cfg=cfg(simd_avx512_env)");
@@ -12,6 +13,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_THRESHOLD");
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_SSE2_DECODE");
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_SSE2_ENCODE");
+    println!("cargo:rerun-if-env-changed=B64_URL__SIMD_SSSE3_ENCODE");
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_AVX2_DECODE");
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_AVX2_ENCODE");
     println!("cargo:rerun-if-env-changed=B64_URL__SIMD_AVX512_DECODE");
@@ -34,6 +36,10 @@ fn main() {
     }
     if env::var("B64_URL__SIMD_SSE2_ENCODE").is_ok() {
         println!("cargo:rustc-cfg=simd_sse2_encode_env");
+        simd_env = true;
+    }
+    if env::var("B64_URL__SIMD_SSSE3_ENCODE").is_ok() {
+        println!("cargo:rustc-cfg=simd_ssse3_encode_env");
         simd_env = true;
     }
     if env::var("B64_URL__SIMD_AVX2_DECODE").is_ok() {

@@ -21,6 +21,7 @@ simd-avx2-decode = []
 simd-avx512-decode = []
 encode-lut = []
 simd-sse2-encode = []
+simd-ssse3-encode = []
 simd-avx2-encode = []
 simd-avx512-encode = []
 
@@ -29,6 +30,7 @@ unexpected_cfgs = { level = "warn", check-cfg = [
   "cfg(simd_env)",
   "cfg(simd_sse2_env)",
   "cfg(simd_sse2_encode_env)",
+  "cfg(simd_ssse3_encode_env)",
   "cfg(simd_avx2_env)",
   "cfg(simd_avx2_encode_env)",
   "cfg(simd_avx512_env)",

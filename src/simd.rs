@@ -140,6 +140,13 @@ pub unsafe fn encode_12_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
     unsafe { encode_12_from_m128i(v, out) }
 }
 
+#[cfg(any(feature = "simd-ssse3-encode", simd_ssse3_encode_env))]
+#[target_feature(enable = "ssse3")]
+pub unsafe fn encode_12_bytes_ssse3(input: *const u8, out: *mut u8) -> *mut u8 {
+    let v = unsafe { _mm_loadu_si128(input as *const __m128i) };
+    unsafe { encode_12_from_m128i(v, out) }
+}
+
 #[cfg(any(feature = "simd-avx2-decode", simd_avx2_env))]
 #[target_feature(enable = "avx2")]
 pub unsafe fn decode_32_bytes_avx2(input: *const u8, out: *mut u8) -> *mut u8 {

@@ -187,13 +187,31 @@ pub unsafe fn _b64_url_encode_with_config(
                 }
             }
 
-            #[cfg(any(feature = "simd-sse2-encode", simd_sse2_encode_env))]
-            if left >= 12 && std::arch::is_x86_feature_detected!("sse2") {
-                while left >= 12 {
-                    out_ptr = unsafe { simd::encode_12_bytes_sse2(in_ptr, out_ptr) };
-                    in_ptr = unsafe { in_ptr.add(12) };
-                    left -= 12;
-                    bytes += 16;
+            #[cfg(any(
+                feature = "simd-ssse3-encode",
+                simd_ssse3_encode_env,
+                feature = "simd-sse2-encode",
+                simd_sse2_encode_env
+            ))]
+            if left >= 12 {
+                if (cfg!(feature = "simd-ssse3-encode") || cfg!(simd_ssse3_encode_env))
+                    && std::arch::is_x86_feature_detected!("ssse3")
+                {
+                    while left >= 12 {
+                        out_ptr = unsafe { simd::encode_12_bytes_ssse3(in_ptr, out_ptr) };
+                        in_ptr = unsafe { in_ptr.add(12) };
+                        left -= 12;
+                        bytes += 16;
+                    }
+                } else if (cfg!(feature = "simd-sse2-encode") || cfg!(simd_sse2_encode_env))
+                    && std::arch::is_x86_feature_detected!("sse2")
+                {
+                    while left >= 12 {
+                        out_ptr = unsafe { simd::encode_12_bytes_sse2(in_ptr, out_ptr) };
+                        in_ptr = unsafe { in_ptr.add(12) };
+                        left -= 12;
+                        bytes += 16;
+                    }
                 }
             }
 
