@@ -374,6 +374,16 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
                 out_len += 24;
             }
             processed = simd_blocks * 32;
+        } else if (cfg!(feature = "simd-ssse3-decode") || cfg!(simd_ssse3_decode_env))
+            && std::arch::is_x86_feature_detected!("ssse3")
+        {
+            let simd_blocks = length / 16;
+            for _ in 0..simd_blocks {
+                out = unsafe { simd::decode_16_bytes_ssse3(in_ptr, out) };
+                in_ptr = unsafe { in_ptr.add(16) };
+                out_len += 12;
+            }
+            processed = simd_blocks * 16;
         } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
             && std::arch::is_x86_feature_detected!("sse2")
         {
@@ -470,6 +480,16 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     out_len += 24;
                 }
                 processed = simd_blocks * 32;
+            } else if (cfg!(feature = "simd-ssse3-decode") || cfg!(simd_ssse3_decode_env))
+                && std::arch::is_x86_feature_detected!("ssse3")
+            {
+                let simd_blocks = (bulk_chunks * 4) / 16;
+                for _ in 0..simd_blocks {
+                    out = unsafe { simd::decode_16_bytes_ssse3(in_ptr, out) };
+                    in_ptr = unsafe { in_ptr.add(16) };
+                    out_len += 12;
+                }
+                processed = simd_blocks * 16;
             } else if (cfg!(feature = "simd-sse2-decode") || cfg!(simd_sse2_env))
                 && std::arch::is_x86_feature_detected!("sse2")
             {

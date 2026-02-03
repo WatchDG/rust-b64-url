@@ -16,6 +16,7 @@ edition = "2024"
 
 [features]
 simd = []
+simd-ssse3-decode = []
 simd-sse2-decode = []
 simd-avx2-decode = []
 simd-avx512-decode = []
@@ -29,6 +30,7 @@ simd-avx512-encode = []
 unexpected_cfgs = { level = "warn", check-cfg = [
   "cfg(simd_env)",
   "cfg(simd_sse2_env)",
+  "cfg(simd_ssse3_decode_env)",
   "cfg(simd_sse2_encode_env)",
   "cfg(simd_ssse3_encode_env)",
   "cfg(simd_avx2_env)",

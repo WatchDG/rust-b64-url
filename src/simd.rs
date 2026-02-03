@@ -25,6 +25,113 @@ unsafe fn decode_4_from_bytes(b0: u8, b1: u8, b2: u8, b3: u8, out: *mut u8) -> *
 }
 
 #[inline(always)]
+unsafe fn pack_4_to_ptr(v0: u8, v1: u8, v2: u8, v3: u8, out: *mut u8) -> *mut u8 {
+    let b0 = ((v0 as u32) << 2) | ((v1 as u32) >> 4);
+    let b1 = (((v1 as u32) & 0x0f) << 4) | ((v2 as u32) >> 2);
+    let b2 = (((v2 as u32) & 0x03) << 6) | (v3 as u32);
+    unsafe {
+        *out = b0 as u8;
+        *out.add(1) = b1 as u8;
+        *out.add(2) = b2 as u8;
+        out.add(3)
+    }
+}
+
+#[inline(always)]
+unsafe fn map_ascii_to_6bit_m128i(input: __m128i) -> __m128i {
+    let a = _mm_set1_epi8(b'A' as i8);
+    let z = _mm_set1_epi8(b'Z' as i8);
+    let a_minus_1 = _mm_set1_epi8((b'A' - 1) as i8);
+    let z_plus_1 = _mm_set1_epi8((b'Z' + 1) as i8);
+
+    let a_low = _mm_set1_epi8(b'a' as i8);
+    let z_low = _mm_set1_epi8(b'z' as i8);
+    let a_low_minus_1 = _mm_set1_epi8((b'a' - 1) as i8);
+    let z_low_plus_1 = _mm_set1_epi8((b'z' + 1) as i8);
+
+    let zero_char = _mm_set1_epi8(b'0' as i8);
+    let nine_char = _mm_set1_epi8(b'9' as i8);
+    let zero_minus_1 = _mm_set1_epi8((b'0' - 1) as i8);
+    let nine_plus_1 = _mm_set1_epi8((b'9' + 1) as i8);
+
+    let mask_upper = _mm_and_si128(
+        _mm_cmpgt_epi8(input, a_minus_1),
+        _mm_cmpgt_epi8(z_plus_1, input),
+    );
+    let mask_lower = _mm_and_si128(
+        _mm_cmpgt_epi8(input, a_low_minus_1),
+        _mm_cmpgt_epi8(z_low_plus_1, input),
+    );
+    let mask_digit = _mm_and_si128(
+        _mm_cmpgt_epi8(input, zero_minus_1),
+        _mm_cmpgt_epi8(nine_plus_1, input),
+    );
+    let mask_dash = _mm_cmpeq_epi8(input, _mm_set1_epi8(b'-' as i8));
+    let mask_us = _mm_cmpeq_epi8(input, _mm_set1_epi8(b'_' as i8));
+
+    let val_upper = _mm_sub_epi8(input, a);
+    let val_lower = _mm_add_epi8(_mm_sub_epi8(input, a_low), _mm_set1_epi8(26));
+    let val_digit = _mm_add_epi8(_mm_sub_epi8(input, zero_char), _mm_set1_epi8(52));
+    let val_dash = _mm_set1_epi8(62);
+    let val_us = _mm_set1_epi8(63);
+
+    let mut val = _mm_setzero_si128();
+    val = _mm_or_si128(val, _mm_and_si128(mask_upper, val_upper));
+    val = _mm_or_si128(val, _mm_and_si128(mask_lower, val_lower));
+    val = _mm_or_si128(val, _mm_and_si128(mask_digit, val_digit));
+    val = _mm_or_si128(val, _mm_and_si128(mask_dash, val_dash));
+    val = _mm_or_si128(val, _mm_and_si128(mask_us, val_us));
+    val
+}
+
+#[inline(always)]
+unsafe fn map_ascii_to_6bit_m256i(input: __m256i) -> __m256i {
+    let a = _mm256_set1_epi8(b'A' as i8);
+    let z = _mm256_set1_epi8(b'Z' as i8);
+    let a_minus_1 = _mm256_set1_epi8((b'A' - 1) as i8);
+    let z_plus_1 = _mm256_set1_epi8((b'Z' + 1) as i8);
+
+    let a_low = _mm256_set1_epi8(b'a' as i8);
+    let z_low = _mm256_set1_epi8(b'z' as i8);
+    let a_low_minus_1 = _mm256_set1_epi8((b'a' - 1) as i8);
+    let z_low_plus_1 = _mm256_set1_epi8((b'z' + 1) as i8);
+
+    let zero_char = _mm256_set1_epi8(b'0' as i8);
+    let nine_char = _mm256_set1_epi8(b'9' as i8);
+    let zero_minus_1 = _mm256_set1_epi8((b'0' - 1) as i8);
+    let nine_plus_1 = _mm256_set1_epi8((b'9' + 1) as i8);
+
+    let mask_upper = _mm256_and_si256(
+        _mm256_cmpgt_epi8(input, a_minus_1),
+        _mm256_cmpgt_epi8(z_plus_1, input),
+    );
+    let mask_lower = _mm256_and_si256(
+        _mm256_cmpgt_epi8(input, a_low_minus_1),
+        _mm256_cmpgt_epi8(z_low_plus_1, input),
+    );
+    let mask_digit = _mm256_and_si256(
+        _mm256_cmpgt_epi8(input, zero_minus_1),
+        _mm256_cmpgt_epi8(nine_plus_1, input),
+    );
+    let mask_dash = _mm256_cmpeq_epi8(input, _mm256_set1_epi8(b'-' as i8));
+    let mask_us = _mm256_cmpeq_epi8(input, _mm256_set1_epi8(b'_' as i8));
+
+    let val_upper = _mm256_sub_epi8(input, a);
+    let val_lower = _mm256_add_epi8(_mm256_sub_epi8(input, a_low), _mm256_set1_epi8(26));
+    let val_digit = _mm256_add_epi8(_mm256_sub_epi8(input, zero_char), _mm256_set1_epi8(52));
+    let val_dash = _mm256_set1_epi8(62);
+    let val_us = _mm256_set1_epi8(63);
+
+    let mut val = _mm256_setzero_si256();
+    val = _mm256_or_si256(val, _mm256_and_si256(mask_upper, val_upper));
+    val = _mm256_or_si256(val, _mm256_and_si256(mask_lower, val_lower));
+    val = _mm256_or_si256(val, _mm256_and_si256(mask_digit, val_digit));
+    val = _mm256_or_si256(val, _mm256_and_si256(mask_dash, val_dash));
+    val = _mm256_or_si256(val, _mm256_and_si256(mask_us, val_us));
+    val
+}
+
+#[inline(always)]
 unsafe fn encode_3_from_bytes(b0: u8, b1: u8, b2: u8, out: *mut u8) -> *mut u8 {
     let value = ((b0 as u32) << 16) | ((b1 as u32) << 8) | (b2 as u32);
     #[cfg(feature = "encode-lut")]
@@ -133,6 +240,22 @@ pub unsafe fn decode_16_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
     unsafe { decode_16_from_m128i(v, out) }
 }
 
+#[cfg(any(feature = "simd-ssse3-decode", simd_ssse3_decode_env))]
+#[target_feature(enable = "ssse3")]
+pub unsafe fn decode_16_bytes_ssse3(input: *const u8, out: *mut u8) -> *mut u8 {
+    let v = unsafe { _mm_loadu_si128(input as *const __m128i) };
+    let vals = unsafe { map_ascii_to_6bit_m128i(v) };
+    let mut tmp = [0u8; 16];
+    unsafe { _mm_storeu_si128(tmp.as_mut_ptr() as *mut __m128i, vals) };
+    let mut out_ptr = out;
+    let mut i = 0usize;
+    while i < 16 {
+        out_ptr = unsafe { pack_4_to_ptr(tmp[i], tmp[i + 1], tmp[i + 2], tmp[i + 3], out_ptr) };
+        i += 4;
+    }
+    out_ptr
+}
+
 #[cfg(any(feature = "simd-sse2-encode", simd_sse2_encode_env))]
 #[target_feature(enable = "sse2")]
 pub unsafe fn encode_12_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
@@ -151,7 +274,16 @@ pub unsafe fn encode_12_bytes_ssse3(input: *const u8, out: *mut u8) -> *mut u8 {
 #[target_feature(enable = "avx2")]
 pub unsafe fn decode_32_bytes_avx2(input: *const u8, out: *mut u8) -> *mut u8 {
     let v = unsafe { _mm256_loadu_si256(input as *const __m256i) };
-    unsafe { decode_32_from_m256i(v, out) }
+    let vals = unsafe { map_ascii_to_6bit_m256i(v) };
+    let mut tmp = [0u8; 32];
+    unsafe { _mm256_storeu_si256(tmp.as_mut_ptr() as *mut __m256i, vals) };
+    let mut out_ptr = out;
+    let mut i = 0usize;
+    while i < 32 {
+        out_ptr = unsafe { pack_4_to_ptr(tmp[i], tmp[i + 1], tmp[i + 2], tmp[i + 3], out_ptr) };
+        i += 4;
+    }
+    out_ptr
 }
 
 #[cfg(any(feature = "simd-avx2-encode", simd_avx2_encode_env))]
