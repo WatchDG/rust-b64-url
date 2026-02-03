@@ -14,6 +14,10 @@ edition = "2024"
 
 [dependencies]
 
+[dependencies.rayon]
+optional = true
+version = "1"
+
 [features]
 default = ["encode-empty-check", "decode-empty-check", "encode-lut"]
 simd = []
@@ -28,6 +32,8 @@ simd-avx2-encode = []
 simd-avx512-encode = []
 encode-empty-check = []
 decode-empty-check = []
+encode-parallel = ["dep:rayon"]
+decode-parallel = ["dep:rayon"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

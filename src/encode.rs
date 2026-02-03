@@ -6,6 +6,8 @@ use super::B64_URL_ENCODE_LUT;
 ))]
 use super::simd;
 use super::{B64_URL_ENCODE, B64_URL_PAD, B64Config};
+#[cfg(feature = "encode-parallel")]
+use rayon::prelude::*;
 
 #[inline(always)]
 pub(crate) fn b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
@@ -34,6 +36,11 @@ pub(crate) fn b64_url_encode_calculate_exact_length(length: usize, omit_padding:
         _ => full,
     }
 }
+
+#[cfg(feature = "encode-parallel")]
+const PARALLEL_ENCODE_THRESHOLD: usize = 1 << 20;
+#[cfg(feature = "encode-parallel")]
+const PARALLEL_ENCODE_CHUNK: usize = 3 * 4096;
 
 #[cfg(all(
     any(feature = "simd", simd_env),
@@ -167,6 +174,35 @@ pub(crate) unsafe fn b64_url_encode_with_config_to_ptr(
     config: &B64Config,
 ) -> usize {
     let mut bytes = 0;
+    #[cfg(feature = "encode-parallel")]
+    {
+        if source_length >= PARALLEL_ENCODE_THRESHOLD {
+            let full_len = source_length - (source_length % 3);
+            let out_full_len = (full_len / 3) * 4;
+            let chunk_in = PARALLEL_ENCODE_CHUNK - (PARALLEL_ENCODE_CHUNK % 3);
+            let parallel_len = full_len - (full_len % chunk_in);
+            if parallel_len > 0 {
+                let in_slice = std::slice::from_raw_parts(source, parallel_len);
+                let out_slice = std::slice::from_raw_parts_mut(destination, out_full_len);
+                let out_chunk = (chunk_in / 3) * 4;
+                in_slice
+                    .par_chunks_exact(chunk_in)
+                    .zip(out_slice.par_chunks_exact_mut(out_chunk))
+                    .for_each(|(chunk, out_chunk)| unsafe {
+                        b64_url_encode_with_config_to_ptr(
+                            chunk.as_ptr(),
+                            chunk.len(),
+                            out_chunk.as_mut_ptr(),
+                            config,
+                        );
+                    });
+                source = unsafe { source.add(parallel_len) };
+                destination = unsafe { destination.add((parallel_len / 3) * 4) };
+                source_length -= parallel_len;
+                bytes += (parallel_len / 3) * 4;
+            }
+        }
+    }
     #[cfg(all(
         any(feature = "simd", simd_env),
         any(target_arch = "x86", target_arch = "x86_64")
