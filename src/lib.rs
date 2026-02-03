@@ -191,7 +191,7 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
                 out_len += 48;
             }
             processed = simd_blocks * 64;
-        } else if std::arch::is_x86_feature_detected!("avx2") {
+        } else if cfg!(feature = "simd-avx2") && std::arch::is_x86_feature_detected!("avx2") {
             let simd_blocks = length / 32;
             for _ in 0..simd_blocks {
                 out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
@@ -199,7 +199,7 @@ unsafe fn unsafe_b64_url_decode_with_omit_padding(bytes: &[u8]) -> Vec<u8> {
                 out_len += 24;
             }
             processed = simd_blocks * 32;
-        } else if std::arch::is_x86_feature_detected!("sse2") {
+        } else if cfg!(feature = "simd-sse2") && std::arch::is_x86_feature_detected!("sse2") {
             let simd_blocks = length / 16;
             for _ in 0..simd_blocks {
                 out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };
@@ -268,7 +268,7 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     out_len += 48;
                 }
                 processed = simd_blocks * 64;
-            } else if std::arch::is_x86_feature_detected!("avx2") {
+            } else if cfg!(feature = "simd-avx2") && std::arch::is_x86_feature_detected!("avx2") {
                 let simd_blocks = (bulk_chunks * 4) / 32;
                 for _ in 0..simd_blocks {
                     out = unsafe { simd::decode_32_bytes_avx2(in_ptr, out) };
@@ -276,7 +276,7 @@ unsafe fn unsafe_b64_url_decode_with_padding(bytes: &[u8]) -> Vec<u8> {
                     out_len += 24;
                 }
                 processed = simd_blocks * 32;
-            } else if std::arch::is_x86_feature_detected!("sse2") {
+            } else if cfg!(feature = "simd-sse2") && std::arch::is_x86_feature_detected!("sse2") {
                 let simd_blocks = (bulk_chunks * 4) / 16;
                 for _ in 0..simd_blocks {
                     out = unsafe { simd::decode_16_bytes_sse2(in_ptr, out) };

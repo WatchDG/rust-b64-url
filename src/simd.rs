@@ -22,6 +22,7 @@ unsafe fn decode_4_from_ptr(input: *const u8, out: *mut u8) -> *mut u8 {
     }
 }
 
+#[cfg(feature = "simd-sse2")]
 #[target_feature(enable = "sse2")]
 pub unsafe fn decode_16_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
     let v = unsafe { _mm_loadu_si128(input as *const __m128i) };
@@ -35,6 +36,7 @@ pub unsafe fn decode_16_bytes_sse2(input: *const u8, out: *mut u8) -> *mut u8 {
     out_ptr
 }
 
+#[cfg(feature = "simd-avx2")]
 #[target_feature(enable = "avx2")]
 pub unsafe fn decode_32_bytes_avx2(input: *const u8, out: *mut u8) -> *mut u8 {
     let v = unsafe { _mm256_loadu_si256(input as *const __m256i) };
