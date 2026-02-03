@@ -36,17 +36,6 @@ const DEFAULT_CONFIG: B64Config = B64Config {
     padding: B64ConfigPadding { omit: false },
 };
 
-#[cfg(all(
-    any(feature = "simd", simd_env),
-    any(target_arch = "x86", target_arch = "x86_64")
-))]
-const SIMD_THRESHOLD: usize = match option_env!("B64_URL__SIMD_THRESHOLD") {
-    Some("32") => 32,
-    Some("128") => 128,
-    Some("256") => 256,
-    _ => 64,
-};
-
 mod decode;
 mod encode;
 #[cfg(all(

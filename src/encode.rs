@@ -1,11 +1,11 @@
 #[cfg(feature = "encode-lut")]
 use super::B64_URL_ENCODE_LUT;
-use super::{B64_URL_ENCODE, B64_URL_PAD, B64Config};
 #[cfg(all(
     any(feature = "simd", simd_env),
     any(target_arch = "x86", target_arch = "x86_64")
 ))]
-use super::{SIMD_THRESHOLD, simd};
+use super::simd;
+use super::{B64_URL_ENCODE, B64_URL_PAD, B64Config};
 
 #[inline(always)]
 pub(crate) fn b64_url_encode_calculate_destination_capacity(length: usize) -> usize {
@@ -35,6 +35,49 @@ pub(crate) fn b64_url_encode_calculate_exact_length(length: usize, omit_padding:
     }
 }
 
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[inline(always)]
+fn simd_threshold_encode_avx512() -> usize {
+    option_env!("B64_URL__SIMD_THRESHOLD_ENCODE_AVX512")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(48)
+}
+
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[inline(always)]
+fn simd_threshold_encode_avx2() -> usize {
+    option_env!("B64_URL__SIMD_THRESHOLD_ENCODE_AVX2")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(24)
+}
+
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[inline(always)]
+fn simd_threshold_encode_ssse3() -> usize {
+    option_env!("B64_URL__SIMD_THRESHOLD_ENCODE_SSSE3")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(12)
+}
+
+#[cfg(all(
+    any(feature = "simd", simd_env),
+    any(target_arch = "x86", target_arch = "x86_64")
+))]
+#[inline(always)]
+fn simd_threshold_encode_sse2() -> usize {
+    option_env!("B64_URL__SIMD_THRESHOLD_ENCODE_SSE2")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(12)
+}
 #[inline(always)]
 pub(crate) unsafe fn encode_tail_2_with_padding(source: *const u8, destination: *mut u8) {
     let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
@@ -129,13 +172,15 @@ pub(crate) unsafe fn b64_url_encode_with_config_to_ptr(
         any(target_arch = "x86", target_arch = "x86_64")
     ))]
     {
-        if source_length >= SIMD_THRESHOLD {
+        if source_length >= 3 {
             let mut in_ptr = source;
             let mut out_ptr = destination;
             let mut left = source_length - (source_length % 3);
 
             #[cfg(any(feature = "simd-avx512-encode", simd_avx512_encode_env))]
-            if left >= 48 && std::arch::is_x86_feature_detected!("avx512f") {
+            if left >= simd_threshold_encode_avx512()
+                && std::arch::is_x86_feature_detected!("avx512f")
+            {
                 while left >= 48 {
                     out_ptr = unsafe { simd::encode_48_bytes_avx512(in_ptr, out_ptr) };
                     in_ptr = unsafe { in_ptr.add(48) };
@@ -145,7 +190,7 @@ pub(crate) unsafe fn b64_url_encode_with_config_to_ptr(
             }
 
             #[cfg(any(feature = "simd-avx2-encode", simd_avx2_encode_env))]
-            if left >= 24 && std::arch::is_x86_feature_detected!("avx2") {
+            if left >= simd_threshold_encode_avx2() && std::arch::is_x86_feature_detected!("avx2") {
                 while left >= 24 {
                     out_ptr = unsafe { simd::encode_24_bytes_avx2(in_ptr, out_ptr) };
                     in_ptr = unsafe { in_ptr.add(24) };
@@ -160,8 +205,9 @@ pub(crate) unsafe fn b64_url_encode_with_config_to_ptr(
                 feature = "simd-sse2-encode",
                 simd_sse2_encode_env
             ))]
-            if left >= 12 {
+            if left >= simd_threshold_encode_ssse3() || left >= simd_threshold_encode_sse2() {
                 if (cfg!(feature = "simd-ssse3-encode") || cfg!(simd_ssse3_encode_env))
+                    && left >= simd_threshold_encode_ssse3()
                     && std::arch::is_x86_feature_detected!("ssse3")
                 {
                     while left >= 12 {
@@ -171,6 +217,7 @@ pub(crate) unsafe fn b64_url_encode_with_config_to_ptr(
                         bytes += 16;
                     }
                 } else if (cfg!(feature = "simd-sse2-encode") || cfg!(simd_sse2_encode_env))
+                    && left >= simd_threshold_encode_sse2()
                     && std::arch::is_x86_feature_detected!("sse2")
                 {
                     while left >= 12 {
