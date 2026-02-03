@@ -19,6 +19,7 @@ simd = []
 simd-sse2-decode = []
 simd-avx2-decode = []
 simd-avx512-decode = []
+encode-lut = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

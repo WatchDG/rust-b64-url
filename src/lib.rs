@@ -1,6 +1,23 @@
 pub const B64_URL_ENCODE: [u8; 64] =
     *b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
+#[cfg(feature = "encode-lut")]
+const fn build_b64_url_encode_lut() -> [u16; 4096] {
+    let mut table = [0u16; 4096];
+    let mut i = 0usize;
+    while i < 4096 {
+        let value = i as u16;
+        let c0 = B64_URL_ENCODE[((value >> 6) & 0x3f) as usize] as u16;
+        let c1 = B64_URL_ENCODE[(value & 0x3f) as usize] as u16;
+        table[i] = (c0 << 8) | c1;
+        i += 1;
+    }
+    table
+}
+
+#[cfg(feature = "encode-lut")]
+const B64_URL_ENCODE_LUT: [u16; 4096] = build_b64_url_encode_lut();
+
 const fn build_b64_url_decode_table() -> [u8; 256] {
     let mut table = [0u8; 256];
     let mut i = 0;
@@ -69,13 +86,29 @@ pub unsafe fn _b64_url_encode_with_config(
                 | ((*source.offset(1) as u32) << 8)
                 | (*source.offset(2) as u32)
         };
-        unsafe {
-            *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-            *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
-            *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
-            *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
-            source = source.offset(3);
-            destination = destination.offset(4);
+        #[cfg(feature = "encode-lut")]
+        {
+            let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+            let pair_lo = B64_URL_ENCODE_LUT[(value & 0x0fff) as usize];
+            unsafe {
+                *destination = (pair_hi >> 8) as u8;
+                *destination.offset(1) = pair_hi as u8;
+                *destination.offset(2) = (pair_lo >> 8) as u8;
+                *destination.offset(3) = pair_lo as u8;
+                source = source.offset(3);
+                destination = destination.offset(4);
+            }
+        }
+        #[cfg(not(feature = "encode-lut"))]
+        {
+            unsafe {
+                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
+                *destination.offset(3) = B64_URL_ENCODE[(value & 0b11_1111) as usize];
+                source = source.offset(3);
+                destination = destination.offset(4);
+            }
         }
         source_length -= 3;
         bytes += 4;
@@ -84,8 +117,17 @@ pub unsafe fn _b64_url_encode_with_config(
         2 => {
             let value = unsafe { ((*source as u32) << 16) | ((*source.offset(1) as u32) << 8) };
             unsafe {
-                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                #[cfg(feature = "encode-lut")]
+                {
+                    let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+                    *destination = (pair_hi >> 8) as u8;
+                    *destination.offset(1) = pair_hi as u8;
+                }
+                #[cfg(not(feature = "encode-lut"))]
+                {
+                    *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+                    *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                }
                 *destination.offset(2) = B64_URL_ENCODE[((value >> 6) & 0b11_1111) as usize];
             }
             if !config.padding.omit {
@@ -98,8 +140,17 @@ pub unsafe fn _b64_url_encode_with_config(
         1 => {
             let value = unsafe { (*source as u32) << 16 };
             unsafe {
-                *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
-                *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                #[cfg(feature = "encode-lut")]
+                {
+                    let pair_hi = B64_URL_ENCODE_LUT[(value >> 12) as usize];
+                    *destination = (pair_hi >> 8) as u8;
+                    *destination.offset(1) = pair_hi as u8;
+                }
+                #[cfg(not(feature = "encode-lut"))]
+                {
+                    *destination = B64_URL_ENCODE[((value >> 18) & 0b11_1111) as usize];
+                    *destination.offset(1) = B64_URL_ENCODE[((value >> 12) & 0b11_1111) as usize];
+                }
             }
             if !config.padding.omit {
                 unsafe {
