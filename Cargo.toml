@@ -25,6 +25,8 @@ simd-sse2-encode = []
 simd-ssse3-encode = []
 simd-avx2-encode = []
 simd-avx512-encode = []
+encode-empty-check = []
+decode-empty-check = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = [

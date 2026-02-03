@@ -56,6 +56,10 @@ pub struct B64Config {
 
 #[inline(always)]
 pub fn b64_url_encode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
+    #[cfg(feature = "encode-empty-check")]
+    if bytes.is_empty() {
+        return Vec::new();
+    }
     let length = bytes.len();
     let mut vec = Vec::<u8>::with_capacity(encode::b64_url_encode_calculate_destination_capacity(
         length,
@@ -78,6 +82,10 @@ pub fn b64_url_encode_into_with_config(
     out: &mut [u8],
     config: &B64Config,
 ) -> Option<usize> {
+    #[cfg(feature = "encode-empty-check")]
+    if bytes.is_empty() {
+        return Some(0);
+    }
     let needed = encode::b64_url_encode_calculate_exact_length(bytes.len(), config.padding.omit);
     if out.len() < needed {
         return None;
@@ -95,11 +103,19 @@ pub fn b64_url_encode_into_with_config(
 
 #[inline(always)]
 pub fn b64_url_encode(bytes: &[u8]) -> Vec<u8> {
+    #[cfg(feature = "encode-empty-check")]
+    if bytes.is_empty() {
+        return Vec::new();
+    }
     b64_url_encode_with_config(bytes, &DEFAULT_CONFIG)
 }
 
 #[inline(always)]
 pub fn b64_url_encode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+    #[cfg(feature = "encode-empty-check")]
+    if bytes.is_empty() {
+        return Some(0);
+    }
     b64_url_encode_into_with_config(bytes, out, &DEFAULT_CONFIG)
 }
 
@@ -108,6 +124,10 @@ pub fn b64_url_encode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
 /// This function should not be called without checking the input value.
 #[inline(always)]
 pub unsafe fn unsafe_b64_url_decode(bytes: &[u8]) -> Vec<u8> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Vec::new();
+    }
     unsafe { unsafe_b64_url_decode_with_config(bytes, &DEFAULT_CONFIG) }
 }
 
@@ -116,6 +136,10 @@ pub unsafe fn unsafe_b64_url_decode(bytes: &[u8]) -> Vec<u8> {
 /// This function should not be called without checking the input value.
 #[inline(always)]
 pub unsafe fn unsafe_b64_url_decode_with_config(bytes: &[u8], config: &B64Config) -> Vec<u8> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Vec::new();
+    }
     if config.padding.omit {
         return unsafe { decode::unsafe_b64_url_decode_with_omit_padding(bytes) };
     }
@@ -131,6 +155,10 @@ pub unsafe fn unsafe_b64_url_decode_into_with_config(
     out: &mut [u8],
     config: &B64Config,
 ) -> Option<usize> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Some(0);
+    }
     let needed = decode::b64_url_decode_calculate_exact_length(bytes, config.padding.omit)?;
     if out.len() < needed {
         return None;
@@ -148,5 +176,9 @@ pub unsafe fn unsafe_b64_url_decode_into_with_config(
 /// This function should not be called without checking the input value.
 #[inline(always)]
 pub unsafe fn unsafe_b64_url_decode_into(bytes: &[u8], out: &mut [u8]) -> Option<usize> {
+    #[cfg(feature = "decode-empty-check")]
+    if bytes.is_empty() {
+        return Some(0);
+    }
     unsafe { unsafe_b64_url_decode_into_with_config(bytes, out, &DEFAULT_CONFIG) }
 }
